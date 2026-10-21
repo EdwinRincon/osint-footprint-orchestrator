@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "osint-tool"
+version = "0.1.0"
+description = "Herramienta educativa de OSINT modular con informe, grafo y web local"
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31",
+    "flask>=3.0",
+    "jinja2>=3.1",
+    "dnspython>=2.4",
+    "python-whois>=0.9",
+    "phonenumbers>=8.13",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "types-requests",
+]
+
+# Comando `osint` disponible tras `pip install -e .`
+[project.scripts]
+osint = "osint_tool.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Incluye la plantilla HTML dentro del paquete
+[tool.setuptools.package-data]
+osint_tool = ["py.typed", "web/templates/*.html", "reporters/templates/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# E/F: errores, I: orden de imports, B: bugs comunes, UP: sintaxis moderna,
+# S: seguridad (bandit), SIM: simplificaciones
+select = ["E", "F", "I", "B", "UP", "S", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]   # assert permitido en tests
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["src"]
+mypy_path = "src"
+
+# Estas librerías no incluyen tipos
+[[tool.mypy.overrides]]
+module = ["whois.*", "dns.*", "phonenumbers.*"]
+ignore_missing_imports = true

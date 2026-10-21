@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Informe OSINT</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 960px;
+           padding: 0 1rem; color: #222; }
+    .notice { background: #fff4d6; border-left: 4px solid #e0a800; padding: .6rem 1rem; }
+    .notes { background: #e8f1fb; border-left: 4px solid #2f74c0; padding: .1rem 1rem; }
+    table { border-collapse: collapse; width: 100%; margin: .5rem 0 1.5rem; }
+    th, td { border: 1px solid #ddd; padding: .35rem .6rem; text-align: left;
+             vertical-align: top; word-break: break-word; }
+    th { background: #f4f4f4; }
+    .badge { padding: .1rem .5rem; border-radius: .6rem; font-size: .85em; }
+    .ok { background: #d6f5d6; }
+    .skipped { background: #fff0c2; }
+    .error { background: #ffd6d6; }
+    .found { background: #d6f5d6; }
+    .not_found { background: #eee; }
+    .inconclusive { background: #fff0c2; }
+    .muted { color: #666; }
+    img { max-width: 100%; }
+  </style>
+</head>
+<body>
+  <h1>Informe OSINT</h1>
+  <p class="notice">{{ notice }}</p>
+  <p class="muted">Generado: {{ created }}</p>
+
+  {% if report.notes %}
+  <section class="notes">
+    <h2>Avisos</h2>
+    <ul>
+      {% for note in report.notes %}
+      <li>{{ note }}</li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  <h2>Objetivo</h2>
+  <table>
+    {% for key, value in target.items() %}
+    <tr><th>{{ key }}</th><td>{{ value }}</td></tr>
+    {% endfor %}
+  </table>
+
+  <h2>Fuentes</h2>
+  <table>
+    <tr><th>Módulo</th><th>Estado</th><th>Hallazgos</th><th>Duración</th><th>Detalle</th></tr>
+    {% for r in report.results %}
+    <tr>
+      <td>{{ r.name }}</td>
+      <td><span class="badge {{ r.status.value }}">{{ r.status.value }}</span></td>
+      <td>{{ r.findings | length }}</td>
+      <td>{{ r.duration }} s</td>
+      <td>{{ r.error or "" }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  {% for r in report.results if r.source_checks %}
+  <h3>Comprobaciones de {{ r.name }}</h3>
+  <table>
+    <tr><th>Fuente</th><th>Resultado</th><th>Detalle</th><th>Consultado</th></tr>
+    {% for check in r.source_checks %}
+    <tr>
+      <td>{{ check.source }}</td>
+      <td><span class="badge {{ check.status.value }}">{{ check.status.value }}</span></td>
+      <td>{{ check.detail or "" }}</td>
+      <td>{{ check.retrieved_at.isoformat(timespec="seconds") }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endfor %}
+
+  <h2>Hallazgos</h2>
+  {% for r in report.results if r.findings %}
+  <h3>{{ r.name }}</h3>
+  <p class="muted">Hallazgos = observaciones de la fuente; no demuestran por sí solos la identidad ni la titularidad.</p>
+  <table>
+    <tr><th>Tipo</th><th>Valor</th><th>Detalle</th><th>Fuente</th><th>Referencia</th><th>Consultado (UTC)</th><th>Confianza (heurística)</th></tr>
+    {% for f in r.findings %}
+    <tr>
+      <td>{{ f.type }}</td>
+      <td>{{ f.value }}</td>
+      <td>{{ f.detail or "" }}</td>
+      <td>{{ f.source }}</td>
+      <td>
+        {% if f.source_url and (f.source_url.startswith("https://") or f.source_url.startswith("http://")) %}
+        <a href="{{ f.source_url }}" rel="noreferrer noopener">{{ f.source_url }}</a>
+        {% else %}
+        <span class="muted">No disponible</span>
+        {% endif %}
+      </td>
+      <td>{{ f.retrieved_at.isoformat(timespec="seconds") }}</td>
+      <td>{{ "%.2f" | format(f.confidence) }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">Sin hallazgos.</p>
+  {% endfor %}
+
+  <h2>Relaciones (hipótesis; verificar con evidencia independiente)</h2>
+  {% if report.relations %}
+  <table>
+    <tr><th>Relación</th><th>Etiqueta</th><th>Confianza (heurística)</th></tr>
+    {% for rel in report.relations %}
+    <tr>
+      <td>{{ rel.source }} &rarr; {{ rel.target }}</td>
+      <td>{{ rel.label }}</td>
+      <td>{{ "%.2f" | format(rel.confidence) }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">Sin relaciones.</p>
+  {% endif %}
+
+  {% if has_graph %}
+  <h2>Grafo</h2>
+  <img src="graph.png" alt="Grafo de relaciones">
+  {% endif %}
+
+  <h2>Limitaciones</h2>
+  <ul>
+    <li>Las correlaciones son hipótesis y deben verificarse manualmente.</li>
+    <li>Que un username exista en varias redes no prueba que pertenezca a la misma persona.</li>
+    <li>Las comprobaciones bloqueadas o inconclusas no se cuentan como "no existe".</li>
+    <li>Las puntuaciones de confianza son heurísticas, no probabilidades calibradas.</li>
+    <li>Las fuentes con límite de uso (por ejemplo, brechas) pueden quedar omitidas.</li>
+    <li>El análisis de un teléfono no identifica a su titular.</li>
+  </ul>
+</body>
+</html>

@@ -1,0 +1,90 @@
+"""Contrato de los módulos y registro de fuentes.
+
+Un módulo nuevo solo necesita el decorador `@register`: no hay que editar
+ninguna lista central (principio abierto/cerrado).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+from dataclasses import fields
+from typing import Protocol, TypeVar
+
+from osint_tool.models import Finding, ModuleOutput, Target
+
+# Entradas válidas = campos de Target (única fuente de verdad).
+VALID_INPUTS: frozenset[str] = frozenset(f.name for f in fields(Target))
+
+
+class UnknownModuleError(ValueError):
+    """Se pidió un módulo que no está registrado."""
+
+class ModuleSkipped(Exception):
+    """El módulo no se puede ejecutar ahora (límite de uso, herramienta ausente...).
+
+    No es un error: el informe lo mostrará como `skipped`, con este mensaje.
+    """
+
+class Module(Protocol):
+    """Lo que debe cumplir cualquier fuente de información."""
+
+    name: str
+    accepts: frozenset[str]
+
+    def run(self, target: Target) -> list[Finding] | ModuleOutput:
+        """Consulta la fuente y devuelve hallazgos, opcionalmente con cobertura por fuente."""
+        ...
+
+
+M = TypeVar("M", bound=Module)
+
+_REGISTRY: dict[str, type[Module]] = {}
+
+
+def register(cls: type[M]) -> type[M]:
+    """Decorador que añade una clase de módulo al registro."""
+    if not cls.name:
+        raise ValueError(f"{cls.__name__}: `name` no puede estar vacío")
+    unknown = cls.accepts - VALID_INPUTS
+    if unknown or not cls.accepts:
+        raise ValueError(
+            f"{cls.name}: `accepts` debe ser un subconjunto no vacío de {sorted(VALID_INPUTS)}"
+        )
+    if cls.name in _REGISTRY:
+        raise ValueError(f"Módulo duplicado: {cls.name}")
+    _REGISTRY[cls.name] = cls
+    return cls
+
+
+def all_modules() -> dict[str, type[Module]]:
+    """Copia del registro (nombre -> clase), para `--list-modules`."""
+    return dict(_REGISTRY)
+
+
+def web_optional_modules() -> list[tuple[str, str]]:
+    """Opciones activables en la web, declaradas por cada módulo."""
+    return [
+        (name, getattr(module, "web_label", name.replace("_", " ").title()))
+        for name, module in _REGISTRY.items()
+        if getattr(module, "web_opt_in", False)
+    ]
+
+
+def applicable_modules(target: Target, names: Iterable[str] | None = None) -> list[Module]:
+    """Instancias de los módulos que aceptan algún dato del `Target`.
+
+    Args:
+        target: datos de entrada ya validados.
+        names: si se indica, limita la selección a estos módulos.
+
+    Raises:
+        UnknownModuleError: si algún nombre de `names` no está registrado.
+    """
+    selected = list(_REGISTRY) if names is None else list(names)
+    unknown = [n for n in selected if n not in _REGISTRY]
+    if unknown:
+        raise UnknownModuleError(
+            f"Módulos desconocidos: {', '.join(unknown)}. Disponibles: {', '.join(_REGISTRY)}"
+        )
+    provided = target.provided()
+    return [_REGISTRY[n]() for n in selected if _REGISTRY[n].accepts & provided]
