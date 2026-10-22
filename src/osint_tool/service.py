@@ -13,8 +13,8 @@ from collections.abc import Sequence
 import requests
 
 import osint_tool.modules  # noqa: F401  (el import registra todos los módulos)
-from osint_tool.cli_runner import CliError
 from osint_tool.correlator import correlate
+from osint_tool.external_errors import ExternalToolError
 from osint_tool.models import (
     Finding,
     ModuleOutput,
@@ -29,9 +29,11 @@ from osint_tool.registry import Module, ModuleSkipped, applicable_modules
 logger = logging.getLogger(__name__)
 
 # Fallos previsibles de una fuente: red, herramienta externa, ficheros y datos mal formados.
-EXPECTED_ERRORS = (requests.RequestException, CliError, OSError, ValueError)
+EXPECTED_ERRORS = (requests.RequestException, ExternalToolError, OSError, ValueError)
 
-NO_MODULES_NOTE = "Ningún módulo acepta los datos de entrada indicados: no se consultó ninguna fuente."
+NO_MODULES_NOTE = (
+    "Ningún módulo acepta los datos de entrada indicados: no se consultó ninguna fuente."
+)
 
 
 def _describe_failure(exc: Exception) -> str:
@@ -40,7 +42,7 @@ def _describe_failure(exc: Exception) -> str:
     Los mensajes de `requests` incluyen la URL consultada (con el email o el username),
     así que solo los errores propios, redactados por nosotros, conservan su mensaje.
     """
-    if isinstance(exc, CliError):
+    if isinstance(exc, ExternalToolError):
         return str(exc)
     return type(exc).__name__
 
@@ -68,7 +70,7 @@ def _execute(module: Module, target: Target) -> ModuleResult:
     except EXPECTED_ERRORS as exc:
         logger.warning("Módulo %s falló: %s", module.name, type(exc).__name__)
         status, error = Status.ERROR, _describe_failure(exc)
-    except Exception as exc:  # noqa: BLE001  (un módulo defectuoso no debe tumbar a los demás)
+    except Exception as exc:  # Keep one faulty module from stopping the remaining sources.
         logger.error("Módulo %s con error inesperado: %s", module.name, type(exc).__name__)
         status, error = Status.ERROR, f"Error inesperado ({type(exc).__name__})"
     return ModuleResult(

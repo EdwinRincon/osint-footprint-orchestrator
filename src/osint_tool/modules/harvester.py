@@ -13,8 +13,9 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
-from osint_tool.cli_runner import CliError, CliResult, ToolNotFoundError, run_cli
+from osint_tool.cli_runner import CliResult, run_cli
 from osint_tool.config import load_settings, parse_sources
+from osint_tool.external_errors import ExternalToolError, ToolNotFoundError
 from osint_tool.models import Finding, Target
 from osint_tool.registry import ModuleSkipped, register
 from osint_tool.validation import ValidationError, validate_domain, validate_email
@@ -160,5 +161,7 @@ class HarvesterModule:
 
         if data is None:
             # Sin JSON no se puede afirmar "sin resultados": se informa como fallo.
-            raise CliError(f"theHarvester no generó un JSON legible (código {result.returncode})")
+            raise ExternalToolError(
+                f"theHarvester no generó un JSON legible (código {result.returncode})"
+            )
         return _to_findings(data, target.domain)

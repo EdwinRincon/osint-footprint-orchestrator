@@ -2,19 +2,15 @@
 
 from __future__ import annotations
 
-import subprocess  # noqa: S404  (se usa siempre con lista y shell=False)
+import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass
 
 from osint_tool.config import load_settings
+from osint_tool.external_errors import ExternalToolError, ToolNotFoundError
 
-
-class CliError(RuntimeError):
-    """Fallo al ejecutar una herramienta externa (p. ej. timeout)."""
-
-
-class ToolNotFoundError(CliError):
-    """La herramienta no está instalada; el módulo debe marcarse como `skipped`."""
+# Backwards-compatible name; external-tool errors are not a CLI concern.
+CliError = ExternalToolError
 
 
 @dataclass(frozen=True)
@@ -39,7 +35,7 @@ def run_cli(args: Sequence[str], *, timeout: int | None = None) -> CliResult:
         TypeError: si `args` es un string.
         ValueError: si `args` está vacío.
         ToolNotFoundError: si el ejecutable no existe.
-        CliError: si se supera el timeout.
+        ExternalToolError: si se supera el timeout.
     """
     if isinstance(args, str):
         raise TypeError("run_cli necesita una lista de argumentos, no un string")
@@ -62,6 +58,6 @@ def run_cli(args: Sequence[str], *, timeout: int | None = None) -> CliResult:
     except FileNotFoundError as exc:
         raise ToolNotFoundError(f"No se encuentra la herramienta: {args[0]}") from exc
     except subprocess.TimeoutExpired as exc:
-        raise CliError(f"{args[0]} superó el timeout de {timeout}s") from exc
+        raise ExternalToolError(f"{args[0]} superó el timeout de {timeout}s") from exc
 
     return CliResult(proc.returncode, proc.stdout, proc.stderr)

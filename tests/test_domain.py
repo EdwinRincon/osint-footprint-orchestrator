@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import dns.exception
@@ -48,8 +48,11 @@ def test_campos_whois() -> None:
     data = {
         "registrar": "Registrador SA",
         "org": "Ejemplo SL",
-        "creation_date": [datetime(2000, 1, 1), datetime(2000, 1, 2)],
-        "expiration_date": datetime(2030, 5, 6),
+        "creation_date": [
+            datetime(2000, 1, 1, tzinfo=timezone.utc),
+            datetime(2000, 1, 2, tzinfo=timezone.utc),
+        ],
+        "expiration_date": datetime(2030, 5, 6, tzinfo=timezone.utc),
         "emails": ["admin@ejemplo.com", "Select Request Email Form"],
     }
     findings = DomainModule(FakeResolver(), _whois(data)).run(TARGET)

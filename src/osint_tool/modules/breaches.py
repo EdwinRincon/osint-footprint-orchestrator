@@ -83,9 +83,8 @@ def _breach_names(payload: object) -> list[str]:
         return []
     names: list[str] = []
     for group in groups:
-        for name in group if isinstance(group, list) else [group]:
-            if isinstance(name, str) and name.strip():
-                names.append(name.strip())
+        candidates = group if isinstance(group, list) else [group]
+        names.extend(name.strip() for name in candidates if isinstance(name, str) and name.strip())
     return list(dict.fromkeys(names))
 
 

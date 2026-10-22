@@ -6,8 +6,9 @@ import logging
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from osint_tool.cli_runner import CliError, CliResult, ToolNotFoundError, run_cli
+from osint_tool.cli_runner import CliResult, run_cli
 from osint_tool.correlator import node_id
+from osint_tool.external_errors import ExternalToolError, ToolNotFoundError
 from osint_tool.models import Report
 
 logger = logging.getLogger(__name__)
@@ -89,7 +90,7 @@ class GraphReporter:
         except ToolNotFoundError:
             logger.warning("Graphviz no está instalado: solo se genera graph.dot")
             return [dot_path]
-        except CliError as exc:
+        except ExternalToolError as exc:
             logger.warning("Graphviz falló: %s", exc)
             return [dot_path]
 

@@ -4,7 +4,15 @@ import pytest
 import requests
 
 from osint_tool import registry
-from osint_tool.models import Finding, Status, Target
+from osint_tool.external_errors import ExternalToolError
+from osint_tool.models import (
+    Finding,
+    ModuleOutput,
+    SourceCheck,
+    SourceCheckStatus,
+    Status,
+    Target,
+)
 from osint_tool.registry import ModuleSkipped
 from osint_tool.service import NO_MODULES_NOTE, run_investigation
 
@@ -54,6 +62,31 @@ class BuggyModule:
         raise TypeError("error de programacion con datos sensibles")
 
 
+class ExternalToolFailureModule:
+    name = "external-tool-failure"
+    accepts = frozenset({"domain"})
+
+    def run(self, target):
+        raise ExternalToolError("herramienta agotó el timeout")
+
+
+class SourceCheckModule:
+    name = "source-check"
+    accepts = frozenset({"domain"})
+
+    def run(self, target):
+        return ModuleOutput(
+            findings=[],
+            source_checks=[
+                SourceCheck(
+                    source="Fake",
+                    status=SourceCheckStatus.INCONCLUSIVE,
+                    detail="sin respuesta",
+                )
+            ],
+        )
+
+
 def test_modulo_ok_con_hallazgos_y_relaciones() -> None:
     report = run_investigation(TARGET, [OkModule()])
     result = report.results[0]
@@ -80,6 +113,24 @@ def test_un_fallo_esperado_no_tumba_a_los_demas() -> None:
     assert len(report.findings) == 1
 
 
+def test_fallo_de_herramienta_externa_conserva_el_error_de_dominio() -> None:
+    result = run_investigation(TARGET, [ExternalToolFailureModule()]).results[0]
+    assert result.status is Status.ERROR
+    assert result.error == "herramienta agotó el timeout"
+
+
+def test_output_conserva_comprobaciones_de_fuente() -> None:
+    result = run_investigation(TARGET, [SourceCheckModule()]).results[0]
+    assert result.status is Status.OK
+    assert len(result.source_checks) == 1
+    check = result.source_checks[0]
+    assert (check.source, check.status, check.detail) == (
+        "Fake",
+        SourceCheckStatus.INCONCLUSIVE,
+        "sin respuesta",
+    )
+
+
 def test_un_error_inesperado_se_registra_sin_tumbar_a_los_demas() -> None:
     report = run_investigation(TARGET, [BuggyModule(), OkModule()])
     assert [r.status for r in report.results] == [Status.ERROR, Status.OK]
@@ -87,11 +138,13 @@ def test_un_error_inesperado_se_registra_sin_tumbar_a_los_demas() -> None:
     assert len(report.findings) == 1
 
 
-def test_el_informe_no_filtra_datos_de_la_consulta() -> None:
+def test_el_informe_no_filtra_datos_de_la_consulta(caplog: pytest.LogCaptureFixture) -> None:
     report = run_investigation(TARGET, [LeakyModule(), BuggyModule()])
     serialized = json.dumps(report.to_dict())
     assert PRIVATE_EMAIL not in serialized
     assert "datos sensibles" not in serialized
+    assert PRIVATE_EMAIL not in caplog.text
+    assert "datos sensibles" not in caplog.text
     assert report.results[0].error == "ConnectionError"
 
 

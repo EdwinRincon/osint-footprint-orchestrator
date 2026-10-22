@@ -3,6 +3,11 @@ import sys
 import pytest
 
 from osint_tool.cli_runner import CliError, ToolNotFoundError, run_cli
+from osint_tool.external_errors import ExternalToolError
+
+
+def test_cli_error_es_alias_compatible_del_error_de_herramienta() -> None:
+    assert CliError is ExternalToolError
 
 
 def test_ejecuta_comando() -> None:

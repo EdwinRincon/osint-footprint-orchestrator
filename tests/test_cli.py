@@ -1,3 +1,4 @@
+import json
 import logging
 from pathlib import Path
 
@@ -36,6 +37,28 @@ def test_list_modules(capsys: pytest.CaptureFixture[str]) -> None:
         assert name in out
 
 
+def test_modules_menu_returns_to_main_menu(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    actions = iter(["modules", "exit"])
+    calls = 0
+
+    class FakePrompt:
+        def execute(self) -> str:
+            nonlocal calls
+            calls += 1
+            return next(actions)
+
+    monkeypatch.setattr(cli, "_supports_interactive_prompts", lambda: True)
+    monkeypatch.setattr(cli, "ListPrompt", lambda **kwargs: FakePrompt())
+
+    assert cli.main([]) == 0
+
+    out = capsys.readouterr().out
+    assert "Módulos disponibles" in out
+    assert calls == 2
+
+
 def test_sin_datos_de_entrada_falla(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc:
         cli.main([])
@@ -67,6 +90,100 @@ def test_ejecucion_con_formato_json(salida: Path, capsys: pytest.CaptureFixture[
     assert list(salida.glob("*/report.html")) == []
 
 
+def test_root_options_output_machine_readable_json(
+    salida: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli.main(
+        ["--domain", "ejemplo.com", "--format", "json", "--output", "json"]
+    ) == 0
+    out = capsys.readouterr().out
+    data = json.loads(out)
+    assert data["target"] == {"domain": "ejemplo.com"}
+    assert data["results"][1]["status"] == "skipped"
+    assert "notice" in data
+    assert "Investigación completada" not in out
+    assert len(list(salida.glob("*/report.json"))) == 1
+
+
+def test_no_args_guides_user_through_scan(
+    salida: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    checkbox_results = iter([["domain"], ["domain"]])
+    actions = iter(["scan", "exit"])
+    calls: list[tuple[Target, list[str]]] = []
+    menu_calls = 0
+
+    class FakePrompt:
+        def execute(self):
+            nonlocal menu_calls
+            menu_calls += 1
+            return next(actions)
+
+    class FakeConfirmPrompt:
+        def execute(self) -> bool:
+            return True
+
+    class FakeCheckboxPrompt:
+        def __init__(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+            self.kwargs = kwargs
+
+        def execute(self) -> list[str]:
+            return next(checkbox_results)
+
+    class FakeInputPrompt:
+        def __init__(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+            self.kwargs = kwargs
+
+        def execute(self) -> str:
+            return "ejemplo.com"
+
+    def fake_investigation(target, modules=None):  # type: ignore[no-untyped-def]
+        calls.append((target, [module.name for module in modules or []]))
+        return _fake_investigation(target, modules)
+
+    monkeypatch.setattr(cli, "_supports_interactive_prompts", lambda: True)
+    monkeypatch.setattr(cli, "ListPrompt", lambda **kwargs: FakePrompt())
+    monkeypatch.setattr(cli, "CheckboxPrompt", FakeCheckboxPrompt)
+    monkeypatch.setattr(cli, "InputPrompt", FakeInputPrompt)
+    monkeypatch.setattr(cli, "ConfirmPrompt", lambda **kwargs: FakeConfirmPrompt())
+    monkeypatch.setattr(cli, "run_investigation", fake_investigation)
+    monkeypatch.setattr(
+        cli, "write_reports", lambda report, directory, output_format: (directory, [])
+    )
+
+    assert cli.main([]) == 0
+
+    assert calls == [(Target(domain="ejemplo.com"), ["domain"])]
+    assert menu_calls == 2
+    assert "Investigación completada" in capsys.readouterr().out
+
+
+def test_guided_target_reprompts_invalid_value(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class FakeCheckboxPrompt:
+        def __init__(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+            self.kwargs = kwargs
+
+        def execute(self) -> list[str]:
+            return ["domain"]
+
+    values = iter(["no es un dominio", "EJEMPLO.COM"])
+
+    class FakeInputPrompt:
+        def __init__(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+            self.kwargs = kwargs
+
+        def execute(self) -> str:
+            return next(values)
+
+    monkeypatch.setattr(cli, "CheckboxPrompt", FakeCheckboxPrompt)
+    monkeypatch.setattr(cli, "InputPrompt", FakeInputPrompt)
+
+    assert cli._prompt_target() == Target(domain="ejemplo.com")
+    assert "dominio no válido" in capsys.readouterr().err
+
+
 def test_ejecucion_con_formato_html_incluye_grafo(salida: Path) -> None:
     assert cli.main(["--domain", "ejemplo.com", "--format", "html"]) == 0
     assert len(list(salida.glob("*/report.html"))) == 1
@@ -86,6 +203,77 @@ def test_resumen_muestra_estado_y_detalle() -> None:
     assert "theHarvester no está instalado" in text
     assert "report.json" in text
 
+
+def test_output_csv_contiene_resumen_por_modulo(
+    salida: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli.main(["--domain", "ejemplo.com", "--output", "csv"]) == 0
+    rows = capsys.readouterr().out.splitlines()
+    assert rows[0] == "module,status,findings,duration_seconds,error"
+    assert "domain,ok,1,0.000," in rows
+    assert "harvester,skipped,0,0.000,theHarvester no está instalado" in rows
+
+
+def test_quiet_emite_resumen_compacto(
+    salida: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli.main(["--domain", "ejemplo.com", "--quiet"]) == 0
+    out = capsys.readouterr().out
+    assert "2 módulos · 1 hallazgo · 0 errores · 1 omitido" in out
+    assert "Estado por módulo" not in out
+    assert "domain=ejemplo.com" not in out
+
+
+def test_modulo_con_error_devuelve_codigo_uno(
+    salida: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def failed_investigation(target, modules=None):  # type: ignore[no-untyped-def]
+        report = _fake_investigation(target, modules)
+        report.results[0].status = Status.ERROR
+        report.results[0].error = "falló la consulta"
+        return report
+
+    monkeypatch.setattr(cli, "run_investigation", failed_investigation)
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["--domain", "ejemplo.com", "--output", "json"])
+    assert exc.value.code == 1
+    assert "falló la consulta" in capsys.readouterr().out
+
+
 def test_urllib3_no_registra_urls_completas() -> None:
     cli.main(["--list-modules"])
     assert logging.getLogger("urllib3").level == logging.ERROR
+
+
+def test_scan_subcommand_is_removed() -> None:
+    command = cli.typer.main.get_command(cli.app)
+    assert not hasattr(command, "commands")
+
+
+def test_interactive_cancelado_no_inicia_consultas(
+    salida: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class DeclinedPrompt:
+        def execute(self) -> bool:
+            return False
+
+    called = False
+
+    def fake_investigation(target, modules=None):  # type: ignore[no-untyped-def]
+        nonlocal called
+        called = True
+        return _fake_investigation(target, modules)
+
+    monkeypatch.setattr(cli, "_prompt_target", lambda: Target(domain="ejemplo.com"))
+    monkeypatch.setattr(cli, "_supports_interactive_prompts", lambda: True)
+    monkeypatch.setattr(cli, "_select_modules", lambda target: ["domain"])
+    monkeypatch.setattr(cli, "ConfirmPrompt", lambda **kwargs: DeclinedPrompt())
+    monkeypatch.setattr(cli, "run_investigation", fake_investigation)
+
+    actions = iter(["scan", "exit"])
+    monkeypatch.setattr(cli, "_interactive_menu", lambda: next(actions))
+
+    assert cli.main([]) == 0
+    assert not called
+    assert "no se consultó ninguna fuente" in capsys.readouterr().out
+    assert not list(salida.iterdir())

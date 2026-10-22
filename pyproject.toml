@@ -14,11 +14,15 @@ dependencies = [
     "dnspython>=2.4",
     "python-whois>=0.9",
     "phonenumbers>=8.13",
+    "typer>=0.12",
+    "rich>=13.7",
+    "InquirerPy>=0.3.4",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "coverage>=7.6",
     "ruff>=0.5",
     "mypy>=1.10",
     "types-requests",
@@ -46,17 +50,32 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 # E/F: errores, I: orden de imports, B: bugs comunes, UP: sintaxis moderna,
-# S: seguridad (bandit), SIM: simplificaciones
-select = ["E", "F", "I", "B", "UP", "S", "SIM"]
+# S: seguridad (bandit), SIM: simplificaciones; DTZ/PERF/PL/RET/RUF/T20/ARG:
+# fechas, rendimiento, mantenibilidad, retornos, estilo, prints y argumentos.
+select = ["E", "F", "I", "B", "UP", "S", "SIM", "DTZ", "PERF", "PL", "RET", "RUF", "T20", "ARG"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]   # assert permitido en tests
+# Test doubles intentionally leave protocol parameters unused; tests also compare literal values.
+"tests/**/*.py" = ["ARG", "PLR2004"]
+# CLI signatures are shaped by Typer; correlation helper arguments are kept explicit.
+"src/osint_tool/cli.py" = ["PLR0913", "PLR0917"]
+"src/osint_tool/correlator.py" = ["PLR0913", "PLR0917"]
+# Validation failures are intentionally isolated per candidate.
+"src/osint_tool/modules/harvester.py" = ["PERF203"]
 
 [tool.mypy]
 python_version = "3.10"
 strict = true
 files = ["src"]
 mypy_path = "src"
+warn_unreachable = true
+warn_unused_ignores = true
+enable_error_code = ["ignore-without-code"]
+
+[tool.coverage.run]
+branch = true
+source = ["osint_tool"]
 
 # Estas librerías no incluyen tipos
 [[tool.mypy.overrides]]

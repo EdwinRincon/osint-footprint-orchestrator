@@ -1919,7 +1919,7 @@
     },
     {
       "name": "Disqus",
-      "uri_check": "https://disqus.com/api/3.0/users/details?user=username:{account}&api_key=REDACTED",
+      "uri_check": "https://disqus.com/api/3.0/users/details?user=username:{account}&api_key=E8Uh5l5fHZ6gD8U3KycjAIAk46f68Zw7C6eW8WSjZvCLXebZ7p0r1yrYDrLilk2F",
       "uri_pretty": "https://disqus.com/by/{account}/",
       "e_code": 200,
       "e_string": "\"code\":0",
