@@ -28,9 +28,9 @@ dev = [
     "types-requests",
 ]
 
-# Comando `osint` disponible tras `pip install -e .`
+# Comando `osintbody` disponible tras `pip install -e .`
 [project.scripts]
-osint = "osint_tool.cli:main"
+osintbody = "osint_tool.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

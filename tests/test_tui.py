@@ -1,7 +1,9 @@
 import asyncio
+from unittest.mock import Mock
 
 from textual.widgets import DataTable, Input, Static
 
+from osint_tool import tui
 from osint_tool.models import Finding, ModuleResult, Relation, Report, Status, Target
 from osint_tool.tui import (
     MenuScreen,
@@ -27,6 +29,44 @@ def test_menu_navega_a_modulos_y_regresa_con_escape() -> None:
             assert isinstance(app.screen, MenuScreen)
 
     asyncio.run(scenario())
+
+
+def test_menu_abre_el_sitio_web(monkeypatch) -> None:
+    async def scenario() -> None:
+        app = OsintApp()
+        open_website = Mock()
+        monkeypatch.setattr(app, "open_website", open_website)
+        async with app.run_test(size=(100, 40)) as pilot:
+            await pilot.press("down", "down", "enter")
+            await pilot.pause()
+            open_website.assert_called_once_with()
+
+    asyncio.run(scenario())
+
+
+def test_open_website_inicia_servidor_y_abre_navegador(
+    monkeypatch,
+) -> None:
+    server = Mock()
+    thread = Mock()
+    thread_factory = Mock(return_value=thread)
+    create_app = Mock(return_value=object())
+    make_server = Mock(return_value=server)
+    open_browser = Mock(return_value=True)
+    monkeypatch.setattr(tui, "create_app", create_app)
+    monkeypatch.setattr(tui, "make_server", make_server)
+    monkeypatch.setattr(tui, "Thread", thread_factory)
+    monkeypatch.setattr(tui.webbrowser, "open", open_browser)
+
+    OsintApp().open_website()
+
+    create_app.assert_called_once_with()
+    make_server.assert_called_once_with(
+        tui.HOST, tui.PORT, create_app.return_value, threaded=True
+    )
+    thread_factory.assert_called_once_with(target=server.serve_forever, daemon=True)
+    thread.start.assert_called_once_with()
+    open_browser.assert_called_once_with(f"http://{tui.HOST}:{tui.PORT}")
 
 
 def test_formulario_valida_y_avanza_a_modulos() -> None:

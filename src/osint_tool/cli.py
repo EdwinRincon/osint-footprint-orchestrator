@@ -11,7 +11,7 @@ from osint_tool import __version__
 from osint_tool.tui import run as run_tui
 
 app = typer.Typer(
-    name="osint",
+    name="osintbody",
     help="Investigación OSINT interactiva para uso educativo y responsable.",
     add_completion=False,
     no_args_is_help=False,
@@ -24,7 +24,7 @@ def main_command(
 ) -> None:
     """Inicia la interfaz interactiva de terminal."""
     if version:
-        typer.echo(f"osint {__version__}")
+        typer.echo(f"osintbody {__version__}")
         return
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         typer.echo("La interfaz interactiva requiere una terminal (TTY).", err=True)
@@ -38,7 +38,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         command.main(
             args=argv,
-            prog_name="osint",
+            prog_name="osintbody",
             standalone_mode=True,
         )
     except SystemExit as exc:

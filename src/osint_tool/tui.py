@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import webbrowser
 from pathlib import Path
+from threading import Thread
 from typing import ClassVar, Literal
 
 from rich.panel import Panel
@@ -28,6 +30,7 @@ from textual.widgets import (
 )
 from textual.widgets.option_list import Option
 from textual.widgets.selection_list import Selection
+from werkzeug.serving import BaseWSGIServer, make_server
 
 from osint_tool.config import ConfigError, load_settings
 from osint_tool.models import ModuleResult, Report, Status, Target
@@ -36,15 +39,17 @@ from osint_tool.reporters import write_reports
 from osint_tool.reporters.base import LEGAL_NOTICE
 from osint_tool.service import run_investigation
 from osint_tool.validation import ValidationError, build_target
+from osint_tool.web.app import HOST, PORT, create_app
 
 OutputFormat = Literal["json", "html", "all"]
 
 BANNER = r"""
-  ___  ____ ___ _   _ _____
- / _ \/ ___|_ _| \ | |_   _|
-| | | \___ \| ||  \| | | |
-| |_| |___) | || |\  | | |
- \___/|____/___|_| \_| |_|
+ _____ _____ _____ _   _ ___________  _____________   __
+|  _  /  ___|_   _| \ | |_   _| ___ \|  _  |  _  \ \ / /
+| | | \ `--.  | | |  \| | | | | |_/ /| | | | | | |\ V /
+| | | |`--. \ | | | . ` | | | | ___ \| | | | | | | \ /
+\ \_/ /\__/ /_| |_| |\  | | | | |_/ /\ \_/ / |/ /  | |
+ \___/\____/ \___/\_| \_/ \_/ \____/  \___/|___/   \_/
 """
 
 FIELDS = {
@@ -87,6 +92,7 @@ class MenuScreen(Screen[None]):
         yield OptionList(
             Option("Iniciar una investigación", id="scan"),
             Option("Ver módulos disponibles", id="modules"),
+            Option("Abrir sitio web", id="website"),
             Option("Salir", id="exit"),
         )
         yield Static(LEGAL_NOTICE)
@@ -97,6 +103,9 @@ class MenuScreen(Screen[None]):
             self.app.switch_screen(TargetScreen())
         elif event.option_id == "modules":
             self.app.switch_screen(ModuleListScreen())
+        elif event.option_id == "website":
+            if isinstance(self.app, OsintApp):
+                self.app.open_website()
         else:
             self.app.exit()
 
@@ -347,11 +356,23 @@ class ResultScreen(FlowScreen):
 
 
 class OsintApp(App[None]):
-    TITLE = "OSINT Tool"
+    TITLE = "OSINTBODY"
 
     def __init__(self, output_format: OutputFormat = "all") -> None:
         super().__init__()
         self.output_format = output_format
+        self._web_server: BaseWSGIServer | None = None
+
+    def open_website(self) -> None:
+        url = f"http://{HOST}:{PORT}"
+        try:
+            if self._web_server is None:
+                self._web_server = make_server(HOST, PORT, create_app(), threaded=True)
+                Thread(target=self._web_server.serve_forever, daemon=True).start()
+            if not webbrowser.open(url):
+                self.notify(f"No se pudo abrir el navegador. Visita {url}", severity="warning")
+        except OSError as exc:
+            self.notify(f"No se pudo iniciar el sitio web: {exc}", severity="error")
 
     def on_mount(self) -> None:
         self.push_screen(MenuScreen())

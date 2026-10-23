@@ -27,7 +27,7 @@ def test_sin_tty_no_intenta_iniciar_interfaz(
 
 def test_version_sigue_disponible(capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(["--version"]) == 0
-    assert f"osint {__version__}" in capsys.readouterr().out
+    assert f"osintbody {__version__}" in capsys.readouterr().out
 
 
 def test_help_documenta_solo_el_flujo_interactivo(

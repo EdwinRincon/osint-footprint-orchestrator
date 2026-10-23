@@ -1,4 +1,4 @@
-# OSINT Tool
+# OSINTBODY
 
 Herramienta educativa para consultar información pública a partir de un correo, nombre de usuario, dominio, teléfono internacional o nombre.
 
@@ -22,28 +22,26 @@ pip install -e ".[dev]"
 Inicia la interfaz interactiva de pantalla completa:
 
 ```powershell
-osint
+osintbody
 ```
 
 Usa las flechas y Enter para navegar, espacio para marcar módulos y Escape para volver al menú.
-La CLI es interactiva
+El menú permite iniciar una investigación, consultar los módulos disponibles y abrir el sitio web local.
 
 ```powershell
-osint --help
-osint --version
+osintbody --help
+osintbody --version
 ```
 
-Se puede indicar más de un dato. Usa `osint --help` para ver todas las opciones.
+Usa `osintbody --help` para ver las opciones disponibles.
 
 ## Uso web
 
-Inicia el servidor local:
+Selecciona **Abrir sitio web** en el menú de terminal. El sitio se sirve localmente en:
 
-```powershell
-python -m osint_tool.web.app
-```
+<http://127.0.0.1:5000>
 
-Abre <http://127.0.0.1:5000> en el navegador. El servidor solo escucha en tu equipo.
+El servidor solo escucha en tu equipo.
 El formulario muestra qué análisis se aplican a las entradas: DNS y WHOIS al proporcionar
 un dominio; comprobaciones de username, brechas de email y metadatos de teléfono cuando
 corresponda. theHarvester es opcional y se activa explícitamente. La búsqueda muestra el
