@@ -21,11 +21,13 @@ class Reporter(Protocol):
 
     name: str
 
+    # El contrato común permite combinar formatos sin conocer sus implementaciones.
     def write(self, report: Report, directory: Path) -> list[Path]:
         """Escribe los ficheros en `directory` y devuelve sus rutas."""
         ...
 
 
+# Un sufijo único impide que ejecuciones concurrentes sobrescriban evidencia anterior.
 def create_report_dir(output_dir: Path, report: Report) -> Path:
     """Crea una carpeta nueva y única: <output_dir>/<fecha>-<sufijo>.
 

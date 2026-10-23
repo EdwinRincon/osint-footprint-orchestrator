@@ -26,6 +26,7 @@ EMAIL_CONFIDENCE = 0.7  # públicos, pero a menudo antiguos o genéricos
 IP_CONFIDENCE = 0.8  # resueltas en algún momento, pueden haber cambiado
 
 
+# Ignorar campos de forma inesperada evita convertir estructuras arbitrarias en hallazgos.
 def _strings(value: Any) -> list[str]:
     """Lista de textos no vacíos; cualquier otra cosa se ignora."""
     if not isinstance(value, list):
@@ -33,6 +34,7 @@ def _strings(value: Any) -> list[str]:
     return [item.strip() for item in value if isinstance(item, str) and item.strip()]
 
 
+# Tratar una salida ausente como inválida deja al llamador decidir el estado del módulo.
 def _read_json(path: Path) -> dict[str, Any] | None:
     """Lee el JSON generado por la herramienta; None si falta o está corrupto."""
     try:
@@ -42,7 +44,9 @@ def _read_json(path: Path) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+# Compartir la etiqueta de fuente evita atribuciones divergentes en hallazgos derivados.
 def _finding(entity_type: str, type_: str, value: str, confidence: float = 1.0) -> Finding:
+    # Reutilizar la fuente única evita etiquetas inconsistentes en los resultados derivados.
     return Finding(
         entity_type=entity_type,
         type=type_,
@@ -52,11 +56,14 @@ def _finding(entity_type: str, type_: str, value: str, confidence: float = 1.0) 
     )
 
 
+# Limitar las asociaciones al dominio investigado reduce hallazgos sobre activos ajenos.
 def _belongs_to_domain(candidate: str, domain: str) -> bool:
+    # Restringir el ámbito evita incorporar activos de terceros en la investigación.
     """True si `candidate` es el dominio o uno de sus subdominios."""
     return candidate == domain or candidate.endswith(f".{domain}")
 
 
+# Validar host y dirección por separado permite descartar un campo sin perder el otro.
 def _hosts_and_ips(data: dict[str, Any], domain: str) -> tuple[list[str], list[str]]:
     """Subdominios del dominio analizado y las IP que theHarvester les asocia.
 
@@ -81,6 +88,7 @@ def _hosts_and_ips(data: dict[str, Any], domain: str) -> tuple[list[str], list[s
     return list(dict.fromkeys(hosts)), ips
 
 
+# Parsear IPs con la biblioteca estándar evita aceptar valores con apariencia de dirección.
 def _valid_ips(candidates: list[str]) -> list[str]:
     """IP válidas, normalizadas y sin duplicados."""
     found: list[str] = []
@@ -92,6 +100,7 @@ def _valid_ips(candidates: list[str]) -> list[str]:
     return list(dict.fromkeys(found))
 
 
+# Restringir emails al dominio evita atribuir a la investigación datos de terceros.
 def _emails(data: dict[str, Any], domain: str) -> list[str]:
     """Emails válidos del dominio analizado: los de otros dominios son ruido y datos ajenos."""
     found: list[str] = []
@@ -105,6 +114,7 @@ def _emails(data: dict[str, Any], domain: str) -> list[str]:
     return list(dict.fromkeys(found))
 
 
+# Convertir en una etapa propia permite normalizar formatos antes de entregarlos al servicio.
 def _to_findings(data: dict[str, Any], domain: str) -> list[Finding]:
     hosts, raw_ips = _hosts_and_ips(data, domain)
     findings = [_finding("domain", "subdomain", host) for host in hosts]
@@ -132,6 +142,7 @@ class HarvesterModule:
         "Herramienta externa opcional para dominios; requiere instalación y fuentes configuradas."
     )
 
+    # Inyectar el ejecutor permite validar argumentos y errores sin lanzar procesos reales.
     def __init__(
         self,
         runner: Callable[[Sequence[str]], CliResult] = run_cli,
@@ -141,12 +152,14 @@ class HarvesterModule:
         self._runner = runner
         self._sources = sources
 
+    # Validar fuentes inyectadas igual que la configuración evita diferencias entre modos.
     def _resolve_sources(self) -> str:
         """Fuentes validadas: las inyectadas o, si no hay, las de la configuración."""
         if self._sources:
             return parse_sources(self._sources)
         return load_settings().harvester_sources
 
+    # Aislar los ficheros temporales evita colisiones y residuos entre investigaciones.
     def run(self, target: Target) -> list[Finding]:
         if not target.domain:
             return []

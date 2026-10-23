@@ -32,6 +32,7 @@ class ValidationError(ValueError):
     """Una entrada no cumple el formato permitido."""
 
 
+# Tratar espacios exteriores y campos vacíos igual evita entradas vacías en Target.
 def _clean(value: str | None) -> str | None:
     """Quita espacios; una cadena vacía equivale a no informado."""
     if value is None:
@@ -40,10 +41,12 @@ def _clean(value: str | None) -> str | None:
     return value or None
 
 
+# Un único formato de error mantiene comprensibles los rechazos en todas las interfaces.
 def _fail(field: str, hint: str) -> ValidationError:
     return ValidationError(f"{field} no válido: {hint}")
 
 
+# Convertir IDN antes de validar permite comparar y consultar dominios de forma consistente.
 def _to_ascii_domain(domain: str) -> str:
     """Convierte dominios internacionales (españa.es) a punycode; ASCII queda igual."""
     if domain.isascii():
@@ -54,6 +57,7 @@ def _to_ascii_domain(domain: str) -> str:
         raise _fail("dominio", "caracteres internacionales no admitidos") from None
 
 
+# Canonicalizar aquí evita que cada módulo maneje variantes equivalentes del dominio.
 def validate_domain(value: str) -> str:
     """Devuelve el dominio en minúsculas, en ASCII y sin punto final, o lanza error."""
     domain = _to_ascii_domain(value.strip().lower().rstrip("."))
@@ -62,6 +66,7 @@ def validate_domain(value: str) -> str:
     return domain
 
 
+# Validar el dominio por separado reutiliza las mismas reglas de normalización.
 def validate_email(value: str) -> str:
     """Devuelve el email normalizado (dominio en minúsculas), o lanza error."""
     email = value.strip()
@@ -75,6 +80,7 @@ def validate_email(value: str) -> str:
     return f"{local}@{domain}"
 
 
+# Una lista blanca también evita que nombres de usuario se interpreten como opciones externas.
 def validate_username(value: str) -> str:
     """Valida un nombre de usuario (1-32 caracteres: letras, números, _ . -)."""
     username = value.strip()
@@ -83,6 +89,7 @@ def validate_username(value: str) -> str:
     return username
 
 
+# E.164 hace interoperables las comprobaciones locales de metadatos telefónicos.
 def validate_phone(value: str) -> str:
     """Normaliza a formato internacional E.164 (p. ej. +34600000000)."""
     phone = _PHONE_SEPARATORS_RE.sub("", value.strip())
@@ -91,6 +98,7 @@ def validate_phone(value: str) -> str:
     return phone
 
 
+# NFC y espacios uniformes reducen resultados distintos por diferencias de escritura.
 def validate_name(value: str) -> str:
     """Valida un nombre de persona: normaliza acentos (NFC) y colapsa espacios repetidos."""
     name = " ".join(unicodedata.normalize("NFC", value).split())
@@ -99,6 +107,7 @@ def validate_name(value: str) -> str:
     return name
 
 
+# Construir solo tras validar centraliza la garantía de entrada para todos los consumidores.
 def build_target(
     *,
     email: str | None = None,

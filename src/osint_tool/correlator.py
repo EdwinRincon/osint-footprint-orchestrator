@@ -15,6 +15,7 @@ INPUT_SOURCE = "input"  # relaciones deducidas de los datos aportados, no de una
 TEXT_MATCH_CONFIDENCE = 1.0  # la coincidencia textual es un hecho; que haya titularidad, no
 
 
+# Un identificador determinista hace que una entidad compartida se fusione en el grafo.
 def node_id(kind: str, value: str) -> str:
     """Identificador estable de una entidad en el grafo, p. ej. 'email:ana@ejemplo.com'."""
     return f"{kind}:{value}"
@@ -54,12 +55,16 @@ class _Edge:
     labels: set[str] = field(default_factory=set)
     by_source: dict[str, float] = field(default_factory=dict)
 
+    # El mejor apoyo de una fuente evita contar corroboraciones no independientes.
     def add(self, label: str, source: str, confidence: float) -> None:
+        # Deduplicar por fuente evita inflar la confianza con hallazgos correlacionados.
         self.labels.add(label)
         # Varios hallazgos de la misma fuente no suman: cuenta el mejor.
         self.by_source[source] = max(self.by_source.get(source, 0.0), confidence)
 
+    # Una puntuación conservadora evita presentar relaciones como más seguras de lo observado.
     def confidence(self) -> float:
+        # No asumir independencia evita que varias observaciones correlacionadas inflen el apoyo.
         """Apoyo más fuerte entre las fuentes, sin suponer que sean independientes."""
         return max(self.by_source.values(), default=0.0)
 
@@ -67,13 +72,16 @@ class _Edge:
 _Edges = dict[tuple[str, str], _Edge]
 
 
+# Centraliza la acumulación para que las reglas produzcan aristas con el mismo contrato.
 def _add_edge(
     edges: _Edges, src: str, dst: str, label: str, source: str, confidence: float
 ) -> None:
     edges.setdefault((src, dst), _Edge()).add(label, source, confidence)
 
 
+# Solo se enlaza por coincidencia textual para no inferir titularidad a partir de datos aportados.
 def _link_email_to_domain(fields: dict[str, str], edges: _Edges) -> None:
+    # La relación representa coincidencia textual, no una inferencia de titularidad.
     """Une el email con el dominio indicado si coinciden textualmente.
 
     Los datos aportados juntos no se conectan entre sí: esta coincidencia no prueba
@@ -91,7 +99,9 @@ def _link_email_to_domain(fields: dict[str, str], edges: _Edges) -> None:
         )
 
 
+# Mantener esta conversión común evita que el origen o el tipo de hallazgo pierdan su contexto.
 def _link_findings(fields: dict[str, str], findings: Iterable[Finding], edges: _Edges) -> None:
+    # El anclaje al dato de entrada permite explorar resultados sin afirmar identidad.
     """Enlaza cada hallazgo con la entidad del Target de la que proviene.
 
     Así, un mismo username en varias redes queda unido al mismo nodo.
@@ -110,6 +120,7 @@ def _link_findings(fields: dict[str, str], findings: Iterable[Finding], edges: _
         )
 
 
+# Mantener reglas y agregación separadas permite revisar cada hipótesis de enlace.
 def correlate(target: Target, findings: Iterable[Finding]) -> list[Relation]:
     """Genera las relaciones entre las entidades del Target y los hallazgos."""
     fields = target.to_dict()  # campo -> valor, solo los informados

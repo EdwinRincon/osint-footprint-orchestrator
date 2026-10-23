@@ -44,6 +44,7 @@ ProgressCallback = Callable[[ModuleResult, int, int], None]
 ModuleProgressCallback = Callable[[str, int, int], None]
 
 
+# Evitar mensajes HTTP completos impide reflejar en informes URLs con identificadores.
 def _describe_failure(exc: Exception) -> str:
     """Texto seguro para el informe.
 
@@ -55,6 +56,7 @@ def _describe_failure(exc: Exception) -> str:
     return type(exc).__name__
 
 
+# Normalizar ambos contratos permite que el orquestador procese módulos antiguos y nuevos.
 def _run_module(module: Module, target: Target) -> ModuleOutput:
     """Ejecuta el módulo y unifica su retorno (lista o `ModuleOutput`)."""
     output = module.run(target)
@@ -63,6 +65,7 @@ def _run_module(module: Module, target: Target) -> ModuleOutput:
     return ModuleOutput(findings=output)
 
 
+# Aislar cada ejecución permite informar fallos sin cancelar el resto de las fuentes.
 def _execute(module: Module, target: Target) -> ModuleResult:
     """Ejecuta un módulo y traduce su desenlace a un `ModuleResult`."""
     start = time.perf_counter()
@@ -91,6 +94,7 @@ def _execute(module: Module, target: Target) -> ModuleResult:
     )
 
 
+# Centralizar el flujo conserva el mismo informe para CLI, web y terminal interactiva.
 def run_investigation(
     target: Target,
     modules: Sequence[Module] | None = None,
@@ -117,12 +121,14 @@ def run_investigation(
             if isinstance(module, ProgressAwareModule):
                 progress_callback = on_module_progress
 
+                # La identidad capturada evita atribuir progreso tardío al módulo siguiente.
                 def report_module_progress(
                     current: int,
                     maximum: int,
                     callback: ModuleProgressCallback = progress_callback,
                     module_name: str = module.name,
                 ) -> None:
+                    # Capturar la identidad del módulo evita asociar progreso tardío al siguiente.
                     callback(module_name, current, maximum)
 
                 module.set_progress_callback(report_module_progress)

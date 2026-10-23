@@ -15,6 +15,7 @@ __all__ = ["FORMATS", "reporters_for", "write_reports"]
 FORMATS = ("json", "html", "all")
 
 
+# Mantener el mapeo en un punto evita diferencias de selección entre interfaces.
 def reporters_for(fmt: str) -> list[Reporter]:
     """Reporters de un formato. El HTML incluye el grafo si sus recursos están disponibles."""
     if fmt == "json":
@@ -26,6 +27,7 @@ def reporters_for(fmt: str) -> list[Reporter]:
     raise ValueError(f"Formato desconocido: {fmt}. Disponibles: {', '.join(FORMATS)}")
 
 
+# Centralizar escritura asegura que todos los formatos compartan carpeta y política de nombres.
 def write_reports(report: Report, output_dir: Path, fmt: str = "all") -> tuple[Path, list[Path]]:
     """Crea la carpeta del informe, escribe los ficheros y devuelve (carpeta, rutas)."""
     reporters = reporters_for(fmt)  # valida el formato antes de crear nada

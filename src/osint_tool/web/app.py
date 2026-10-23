@@ -102,13 +102,16 @@ class InvestigationJob:
     error: str | None = None
 
 
+# Filtrar una copia del reporte evita mutar el resultado original que aún consultan clientes.
 def _filter_report(
     report: Report, statuses: set[str], query: str, module: str
 ) -> Report:
+    # Calcula la cobertura completa antes de filtrar para que los totales no dependan de la vista.
     source_checks = [check for result in report.results for check in result.source_checks]
     counts = Counter(check.status.value for check in source_checks)
     query = query.strip().casefold()
 
+    # Unir campos de contexto permite buscar sin depender de un único texto visible.
     def finding_matches(result: ModuleResult, finding: Finding) -> bool:
         if not query:
             return True
@@ -124,12 +127,14 @@ def _filter_report(
         ).casefold()
         return query in text
 
+    # Vincular DNS por record_type preserva la correspondencia de fuente tras el filtrado.
     def check_matches_finding(
         result: ModuleResult, check: SourceCheck, finding: Finding
     ) -> bool:
         if check.source == finding.source:
             return True
         record_type = finding.raw.get("record_type")
+        # Los hallazgos DNS comparten la fuente "DNS"; raw conserva el tipo que enlaza la consulta.
         return (
             result.name == "domain"
             and finding.source == "DNS"
@@ -137,6 +142,7 @@ def _filter_report(
             and check.source == f"DNS {record_type}"
         )
 
+    # Aplicar criterios juntos mantiene coherentes la tabla de cobertura y sus hallazgos.
     def included(result: ModuleResult, check: SourceCheck) -> bool:
         if module and result.name != module:
             return False
@@ -187,6 +193,7 @@ def _filter_report(
         results.append(replace(result, findings=findings, source_checks=checks))
 
     filtered = replace(report, results=results, notes=list(report.notes))
+    # Las relaciones se derivan de hallazgos; conservar las originales filtraría datos ocultos.
     filtered.relations = correlate(report.target, filtered.findings)
     filtered.filter_summary = {
         "statuses": ", ".join(sorted(statuses)) or "ninguno",
@@ -210,13 +217,17 @@ def _filter_report(
 class InvestigationJobs:
     """Keeps short-lived local investigation state and executes jobs off-request."""
 
+    # Compartir un lock evita snapshots parciales entre las peticiones y los workers.
     def __init__(self) -> None:
+        # Requests leen snapshots mientras el worker actualiza progreso y resultados.
         self._jobs: dict[str, InvestigationJob] = {}
         self._lock = threading.Lock()
 
+    # Limitar y caducar trabajos protege el proceso local de acumulación de consultas concurrentes.
     def submit(self, target: Target, modules: list[Module]) -> InvestigationJob | None:
         now = time.monotonic()
         with self._lock:
+            # Monotonic evita que cambios en el reloj del sistema alteren la caducidad.
             expired = [
                 job_id
                 for job_id, job in self._jobs.items()
@@ -237,6 +248,7 @@ class InvestigationJobs:
                 del self._jobs[completed_jobs.pop(0).job_id]
             if len(self._jobs) >= MAX_STORED_JOBS:
                 return None
+            # Cada investigación puede generar muchas peticiones externas.
             active_jobs = sum(
                 job.status in {"queued", "running"} for job in self._jobs.values()
             )
@@ -246,6 +258,7 @@ class InvestigationJobs:
             job = InvestigationJob(job_id, target, modules, total_modules=len(modules))
             self._jobs[job_id] = job
 
+        # El worker necesita el mismo lock para actualizar estado, así que arráncalo fuera de él.
         worker = threading.Thread(
             target=self._execute,
             args=(job,),
@@ -260,10 +273,12 @@ class InvestigationJobs:
             raise
         return job
 
+    # Devolver None permite que la capa HTTP convierta IDs desconocidos en un 404 consistente.
     def get(self, job_id: str) -> InvestigationJob | None:
         with self._lock:
             return self._jobs.get(job_id)
 
+    # Copiar resultados bajo el lock evita exponer colecciones que el worker aún modifica.
     def snapshot(self, job: InvestigationJob) -> dict[str, object]:
         with self._lock:
             return {
@@ -277,20 +292,24 @@ class InvestigationJobs:
                 "error": job.error,
             }
 
+    # Ocultar reportes incompletos evita que los clientes confundan progreso con resultado final.
     def completed_report(self, job: InvestigationJob) -> Report | None:
         with self._lock:
             return job.report if job.status == "complete" else None
 
+    # Ejecutar en segundo plano evita mantener abierta la petición durante consultas externas.
     def _execute(self, job: InvestigationJob) -> None:
         with self._lock:
             job.status = "running"
 
+        # Actualizar bajo lock mantiene cada lectura del estado internamente consistente.
         def module_progress(name: str, completed: int, total: int) -> None:
             with self._lock:
                 job.current_module = name
                 job.current_completed = completed
                 job.current_total = total
 
+        # Publicar cada resultado permite consultar avance antes de tener el reporte final.
         def module_finished(result: ModuleResult, completed: int, total: int) -> None:
             with self._lock:
                 job.completed_modules = completed
@@ -321,6 +340,7 @@ class InvestigationJobs:
             )
             with self._lock:
                 job.status = "failed"
+                # La excepción completa queda en el registro local, no en la respuesta web.
                 job.error = "No se pudo completar la investigación. Consulta el registro local."
             return
 
@@ -329,6 +349,7 @@ class InvestigationJobs:
             job.status = "complete"
 
 
+# Una factory aislada permite configurar almacenamiento y clientes de prueba sin estado global.
 def create_app(output_dir: Path | None = None) -> Flask:
     """Crea la aplicación. `output_dir` permite usar otra carpeta (p. ej. en tests)."""
     app = Flask(__name__)
@@ -338,12 +359,14 @@ def create_app(output_dir: Path | None = None) -> Flask:
     jobs = InvestigationJobs()
     app.extensions["osint_jobs"] = jobs
 
+    # Centralizar el 404 evita que cada ruta interprete IDs inexistentes de forma distinta.
     def get_job(job_id: str) -> InvestigationJob:
         job = jobs.get(job_id)
         if job is None:
             abort(404)
         return job
 
+    # Verificar host y origen antes de procesar formularios reduce solicitudes cross-site.
     @app.before_request
     def guard() -> None:
         hostname = urlparse(f"//{request.host}").hostname
@@ -354,6 +377,7 @@ def create_app(output_dir: Path | None = None) -> Flask:
             if origin and urlparse(origin).netloc != request.host:
                 abort(403)  # formulario enviado desde otra web (CSRF)
 
+    # Aplicar cabeceras en un hook evita que alguna ruta omita protecciones de respuesta.
     @app.after_request
     def security_headers(response: Response) -> Response:
         response.headers["Content-Security-Policy"] = CSP
@@ -363,6 +387,7 @@ def create_app(output_dir: Path | None = None) -> Flask:
         response.headers["Cache-Control"] = "no-store"
         return response
 
+    # Reutilizar el formulario conserva valores y opciones al devolver errores de validación.
     def form(
         error: str | None = None,
         values: dict[str, str] | None = None,
@@ -378,10 +403,12 @@ def create_app(output_dir: Path | None = None) -> Flask:
             selected_modules=selected_modules or set(),
         )
 
+    # Compartir una ruta GET separa la presentación inicial de la tramitación de búsquedas.
     @app.get("/")
     def index() -> ResponseReturnValue:
         return form()
 
+    # Validar módulos y objetivo antes de encolar protege el worker de entradas no confiables.
     @app.post("/")
     def search() -> ResponseReturnValue:
         values = {name: request.form.get(name, "") for name, _, _ in FIELDS}
@@ -426,6 +453,7 @@ def create_app(output_dir: Path | None = None) -> Flask:
             )
         return redirect(url_for("job_results", job_id=job.job_id), code=303)
 
+    # La página consulta estado aparte para que investigaciones largas no bloqueen una respuesta.
     @app.get("/jobs/<job_id>")
     def job_results(job_id: str) -> ResponseReturnValue:
         get_job(job_id)
@@ -437,11 +465,13 @@ def create_app(output_dir: Path | None = None) -> Flask:
             report_url=url_for("generate_report", job_id=job_id),
         )
 
+    # Exponer un snapshot pequeño permite actualizar progreso sin serializar hallazgos cada vez.
     @app.get("/jobs/<job_id>/status")
     def job_status(job_id: str) -> ResponseReturnValue:
         job = get_job(job_id)
         return jsonify(jobs.snapshot(job))
 
+    # Separar datos completos del estado limita la transferencia durante el sondeo frecuente.
     @app.get("/jobs/<job_id>/data")
     def job_data(job_id: str) -> ResponseReturnValue:
         job = get_job(job_id)
@@ -507,6 +537,7 @@ def create_app(output_dir: Path | None = None) -> Flask:
             }
         )
 
+    # Generar una copia filtrada conserva intacto el resultado original para otras vistas.
     @app.post("/jobs/<job_id>/report")
     def generate_report(job_id: str) -> ResponseReturnValue:
         job = get_job(job_id)
@@ -550,6 +581,7 @@ def create_app(output_dir: Path | None = None) -> Flask:
             }
         )
 
+    # Restringir IDs y nombres permite servir solo artefactos generados, no rutas arbitrarias.
     @app.get("/reports/<run_id>/<filename>")
     def serve_report(run_id: str, filename: str) -> ResponseReturnValue:
         if not RUN_ID_RE.fullmatch(run_id) or filename not in SERVED_FILES:
@@ -559,6 +591,7 @@ def create_app(output_dir: Path | None = None) -> Flask:
     return app
 
 
+# Mantener el servidor limitado a localhost evita publicar investigaciones en interfaces externas.
 def main() -> None:
     create_app().run(host=HOST, port=PORT, debug=False)
 

@@ -28,12 +28,14 @@ logger = logging.getLogger(__name__)
 RECORD_TYPES = ("A", "AAAA", "MX", "NS", "TXT")
 
 
+# Mantener el timeout central evita consultas WHOIS indefinidamente bloqueadas.
 def _default_whois(domain: str) -> Mapping[str, Any]:
     """Consulta WHOIS real con el timeout de la configuración."""
     result: Mapping[str, Any] = whois.whois(domain, timeout=int(load_settings().http_timeout))
     return result
 
 
+# WHOIS varía el tipo de algunos campos; una forma única simplifica el tratamiento posterior.
 def _as_list(value: Any) -> list[Any]:
     """WHOIS devuelve a veces un valor y a veces una lista; unifica."""
     if value is None:
@@ -41,6 +43,7 @@ def _as_list(value: Any) -> list[Any]:
     return list(value) if isinstance(value, (list, tuple, set)) else [value]
 
 
+# Escoger el primer dato utilizable evita duplicados de valores en formatos alternativos.
 def _first_text(value: Any) -> str | None:
     """Primer valor no vacío como texto; las fechas salen como YYYY-MM-DD."""
     for item in _as_list(value):
@@ -52,6 +55,7 @@ def _first_text(value: Any) -> str | None:
     return None
 
 
+# Compartir metadatos evita que los hallazgos WHOIS tengan un contrato distinto.
 def _whois_finding(
     entity_type: str, type_: str, value: str, confidence: float = 1.0
 ) -> Finding:
@@ -73,6 +77,7 @@ class DomainModule:
     web_label = "DNS y WHOIS"
     web_description = "Consulta registros DNS (A, AAAA, MX, NS, TXT) y datos públicos WHOIS."
 
+    # Permitir dependencias inyectadas hace posible probar fallos y respuestas sin red.
     def __init__(
         self,
         resolver: Any = None,
@@ -85,6 +90,7 @@ class DomainModule:
         self._resolver = resolver
         self._whois = whois_lookup or _default_whois
 
+    # Devolver ambas coberturas permite distinguir consultas vacías de fuentes sin respuesta.
     def run(self, target: Target) -> ModuleOutput:
         if not target.domain:
             return ModuleOutput()
@@ -95,6 +101,7 @@ class DomainModule:
             source_checks=[*dns_checks, whois_check],
         )
 
+    # Consultar tipos por separado conserva la cobertura exacta cuando un registro falla.
     def _dns_findings(self, domain: str) -> tuple[list[Finding], list[SourceCheck]]:
         findings: list[Finding] = []
         checks: list[SourceCheck] = []
@@ -108,6 +115,7 @@ class DomainModule:
                 continue
             except dns.resolver.NXDOMAIN:
                 logger.info("El dominio %s no existe en DNS", domain)
+                # NXDOMAIN se aplica a todos los tipos restantes; no repetir consultas sin sentido.
                 checks.extend(
                     SourceCheck(f"DNS {record_type}", SourceCheckStatus.NOT_FOUND, "NXDOMAIN.")
                     for record_type in RECORD_TYPES[len(checks) :]
@@ -139,6 +147,7 @@ class DomainModule:
             )
         return findings, checks
 
+    # Tratar WHOIS por separado impide que sus problemas oculten resultados DNS válidos.
     def _whois_findings(
         self, domain: str
     ) -> tuple[list[Finding], SourceCheck]:

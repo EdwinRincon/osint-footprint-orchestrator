@@ -25,6 +25,7 @@ class HtmlReporter:
 
     name = "html"
 
+    # Renderizar desde una plantilla compartida evita ensamblar HTML con datos sin escapar.
     def write(self, report: Report, directory: Path) -> list[Path]:
         html = _env.get_template("report.html").render(
             report=report,

@@ -18,17 +18,22 @@ class TimeoutSession(requests.Session):
     herramienta colgada. Aquí se aplica siempre, salvo que se indique otro.
     """
 
+    # Guardar el timeout en la sesión evita depender de cada consumidor HTTP.
     def __init__(self, timeout: float) -> None:
+        # Requests no ofrece timeout global, así no depende de que cada llamada lo recuerde.
         super().__init__()
         self.timeout = timeout
 
+    # Aplicarlo en la frontera HTTP protege incluso las llamadas que omiten el argumento.
     def request(
         self, method: str | bytes, url: str | bytes, *args: Any, **kwargs: Any
     ) -> requests.Response:
+        # setdefault permite excepciones explícitas sin perder el límite compartido.
         kwargs.setdefault("timeout", self.timeout)
         return super().request(method, url, *args, **kwargs)
 
 
+# Compartir política de reintentos y cabeceras evita comportamientos distintos entre fuentes.
 def build_session(settings: Settings | None = None) -> requests.Session:
     """Crea una sesión lista para usar en los módulos.
 

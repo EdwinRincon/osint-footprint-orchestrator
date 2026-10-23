@@ -22,6 +22,7 @@ class CliResult:
     stderr: str
 
 
+# Centralizar el lanzamiento mantiene iguales los límites de tiempo y el tratamiento de errores.
 def run_cli(args: Sequence[str], *, timeout: int | None = None) -> CliResult:
     """Ejecuta un comando y devuelve su salida.
 

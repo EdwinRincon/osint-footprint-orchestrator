@@ -53,6 +53,7 @@ class Settings:
     breaches_reference_url: str = DEFAULT_BREACHES_REFERENCE_URL  # documentación de la API
 
 
+# Un conversor común evita que cada ajuste interprete números de forma distinta.
 def _read_number(name: str, default: float, minimum: float) -> float:
     """Lee un número del entorno; falla con un mensaje claro si es inválido."""
     raw = os.environ.get(name)
@@ -67,34 +68,41 @@ def _read_number(name: str, default: float, minimum: float) -> float:
     return value
 
 
+# Mantener las rutas como Path simplifica su uso consistente en módulos y reportes.
 def _read_path(name: str, default: Path) -> Path:
     """Lee una ruta del entorno; vacía o ausente equivale al valor por defecto."""
     raw = os.environ.get(name, "").strip()
     return Path(raw) if raw else default
 
 
+# Rechazar HTTP protege identificadores sensibles que algunas fuentes reciben en la URL.
 def _read_https_url(name: str, default: str) -> str:
     """Lee una URL del entorno; solo se admite HTTPS."""
     raw = os.environ.get(name, "").strip()
     if not raw:
         return default
+    # Estos endpoints pueden recibir identificadores de investigación; no enviarlos en claro.
     if not raw.startswith(HTTPS_PREFIX):
         raise ConfigError(f"{name} debe empezar por {HTTPS_PREFIX}")
     return raw
 
 
+# Validar la plantilla al cargar evita consultas mal dirigidas por una URL incompleta.
 def _read_email_template_url(name: str, default: str) -> str:
     """Lee una plantilla de URL de brechas; debe incluir {email}."""
     url = _read_https_url(name, default)
+    # Sin el marcador, una configuración errónea consultaría un endpoint distinto sin avisar.
     if EMAIL_PLACEHOLDER not in url:
         raise ConfigError(f"{name} debe incluir {EMAIL_PLACEHOLDER}")
     return url
 
 
+# El filtrado de vacíos mantiene tolerantes los separadores repetidos de configuración.
 def _split_sources(raw: str) -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
+# Validar antes de construir argumentos mantiene los nombres fuera de opciones inesperadas.
 def parse_sources(raw: str) -> str:
     """Normaliza una lista de fuentes separadas por comas y valida cada nombre.
 
@@ -104,12 +112,15 @@ def parse_sources(raw: str) -> str:
     items = _split_sources(raw)
     if not items:
         raise ConfigError("la lista de fuentes está vacía")
+    # Los nombres se insertan como argumento de theHarvester; limitar su alfabeto evita opciones
+    # inesperadas.
     for item in items:
         if not _SOURCE_RE.fullmatch(item):
             raise ConfigError(f"nombre de fuente no válido: {item!r}")
     return ",".join(items)
 
 
+# Añade el nombre de la variable al error para que el usuario pueda corregir el entorno.
 def _read_sources(name: str, default: str) -> str:
     """Lee las fuentes del entorno; sin valores, usa las de por defecto."""
     raw = os.environ.get(name, "")
@@ -121,6 +132,7 @@ def _read_sources(name: str, default: str) -> str:
         raise ConfigError(f"{name}: {exc}") from exc
 
 
+# Un único objeto inmutable hace explícita la configuración compartida entre componentes.
 def load_settings() -> Settings:
     """Construye los ajustes a partir de las variables de entorno.
 

@@ -57,14 +57,17 @@ class Site:
     strip_chars: str = ""  # caracteres que el sitio no admite en el username
 
 
+# Usar un valor predeterminado evita que datos mal tipados del dataset rompan la carga completa.
 def _code(value: Any, default: int) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else default
 
 
+# Los campos no textuales no tienen interpretación segura como regla de respuesta.
 def _text(value: Any) -> str:
     return value if isinstance(value, str) else ""
 
 
+# Validar la estructura de raíz evita interpretar un dataset cambiado como una lista vacía.
 def _read_wmn_entries(path: Path) -> list[Any]:
     """Lee la lista `sites` del dataset WhatsMyName."""
     try:
@@ -77,6 +80,7 @@ def _read_wmn_entries(path: Path) -> list[Any]:
     return entries
 
 
+# Excluir protecciones respeta las condiciones del sitio y evita automatizar barreras de acceso.
 def _is_checkable(entry: Any, categories: frozenset[str]) -> bool:
     """Descarta entradas inválidas, con POST, con anti-automatización o de otra categoría."""
     if not isinstance(entry, dict) or entry.get("valid") is False:
@@ -86,6 +90,7 @@ def _is_checkable(entry: Any, categories: frozenset[str]) -> bool:
     return not categories or entry.get("cat") in categories
 
 
+# Exigir plantillas esenciales evita consultas incompletas contra URLs arbitrarias.
 def _to_site(entry: dict[str, Any]) -> Site | None:
     """Convierte una entrada WhatsMyName en `Site`; None si le faltan datos esenciales."""
     name, uri = entry.get("name"), entry.get("uri_check")
@@ -108,6 +113,7 @@ def _to_site(entry: dict[str, Any]) -> Site | None:
     )
 
 
+# Convertir una sola vez el dataset separa la validación de las comprobaciones HTTP.
 def load_wmn_sites(path: Path, categories: frozenset[str] = frozenset()) -> list[Site]:
     """Lee el dataset WhatsMyName y devuelve los sitios que se pueden comprobar.
 
@@ -128,6 +134,7 @@ def load_wmn_sites(path: Path, categories: frozenset[str] = frozenset()) -> list
     return sites
 
 
+# Comunicar la ausencia del dataset como estado explícito evita interpretarla como cero perfiles.
 def default_sites(settings: Settings) -> list[Site]:
     """Sitios del dataset configurado.
 
@@ -142,6 +149,7 @@ def default_sites(settings: Settings) -> list[Site]:
     return load_wmn_sites(settings.wmn_file, settings.wmn_categories)
 
 
+# Mantener la ambigüedad como None evita clasificar bloqueos como cuentas inexistentes.
 def _verdict(site: Site, status: int, text: str) -> bool | None:
     """True = existe, False = no existe, None = respuesta no concluyente."""
     if status == site.e_code and (not site.e_string or site.e_string in text):
@@ -151,11 +159,15 @@ def _verdict(site: Site, status: int, text: str) -> bool | None:
     return None
 
 
+# Conservar el nombre del sitio permite explicar cobertura sin revelar parámetros de URL.
 def _source_check(site: Site, status: SourceCheckStatus, detail: str) -> SourceCheck:
+    # Etiquetar con el sitio conserva el origen de cobertura sin exponer la URL consultada.
     return SourceCheck(source=site.name, status=status, detail=detail)
 
 
+# Incluir el perfil facilita comprobar manualmente que la coincidencia no sea un falso positivo.
 def _build_finding(site: Site, safe_username: str, status_code: int) -> Finding:
+    # Guardar el perfil legible facilita su verificación manual sin alterar la consulta.
     profile = (site.pretty_url or site.url).replace(USERNAME_PLACEHOLDER, safe_username)
     return Finding(
         entity_type="username",
@@ -168,6 +180,7 @@ def _build_finding(site: Site, safe_username: str, status_code: int) -> Finding:
     )
 
 
+# Reducir timeout y reintentos limita el coste acumulado al consultar cientos de sitios.
 def _http_session(settings: Settings) -> requests.Session:
     """Sesión sin reintentos y con timeout corto: con cientos de sitios, esperar multiplica."""
     return build_session(
@@ -190,6 +203,7 @@ class UsernamesModule:
         "Comprueba el username en el dataset WhatsMyName; puede consultar cientos de sitios."
     )
 
+    # La sesión y el conjunto de sitios inyectables permiten pruebas aisladas y reproducibles.
     def __init__(
         self,
         session: requests.Session | None = None,
@@ -200,17 +214,21 @@ class UsernamesModule:
         self._sites = sites
         self._progress_callback: Callable[[int, int], None] | None = None
 
+    # Cambiar el callback por ejecución evita conservar referencias de una investigación previa.
     def set_progress_callback(
         self, callback: Callable[[int, int], None] | None
     ) -> None:
+        # El callback se cambia por investigación para no retener estado entre ejecuciones.
         self._progress_callback = callback
 
+    # Acotar concurrencia y preservar el orden produce progreso útil e informes deterministas.
     def run(self, target: Target) -> ModuleOutput:
         if not target.username:
             return ModuleOutput()
 
         # Carga diferida: si el dataset falta o falla, el estado queda en el informe del módulo.
         sites = self._sites if self._sites is not None else default_sites(load_settings())
+        # Las respuestas llegan en orden variable; guardar por índice mantiene el informe estable.
         outcomes: list[tuple[Finding | None, SourceCheck] | None] = [None] * len(sites)
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
             futures = {
@@ -228,6 +246,7 @@ class UsernamesModule:
         self._log_inconclusive(source_checks)
         return ModuleOutput(findings=findings, source_checks=source_checks)
 
+    # Separar los bloqueos evita confundir falta de cobertura con perfiles inexistentes.
     @staticmethod
     def _log_inconclusive(source_checks: Sequence[SourceCheck]) -> None:
         inconclusive = sum(
@@ -240,6 +259,7 @@ class UsernamesModule:
                 len(source_checks),
             )
 
+    # No seguir redirecciones ni asumir éxito en respuestas ambiguas evita falsos positivos.
     def _check(self, site: Site, username: str) -> tuple[Finding | None, SourceCheck]:
         """Comprueba un sitio y devuelve hallazgo (si lo hay) más resultado de cobertura."""
         for char in site.strip_chars:

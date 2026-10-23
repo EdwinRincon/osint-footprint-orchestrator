@@ -69,6 +69,7 @@ class FlowScreen(Screen[None]):
         Binding("escape", "menu", "Menú")
     ]
 
+    # Validar el tipo de aplicación evita fallos crípticos si la pantalla se reutiliza mal.
     @property
     def osint_app(self) -> OsintApp:
         app = self.app
@@ -76,6 +77,7 @@ class FlowScreen(Screen[None]):
             raise RuntimeError("Esta pantalla requiere OsintApp.")
         return app
 
+    # Centralizar el retorno mantiene el mismo destino para Escape y los botones de navegación.
     def action_menu(self) -> None:
         self.app.switch_screen(MenuScreen())
 
@@ -85,6 +87,7 @@ class MenuScreen(Screen[None]):
         Binding("escape", "app.quit", "Salir")
     ]
 
+    # Definir las opciones aquí mantiene navegación y presentación como una sola pantalla.
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static(Panel(Text(BANNER, style="bold cyan"), border_style="magenta"))
@@ -98,6 +101,7 @@ class MenuScreen(Screen[None]):
         yield Static(LEGAL_NOTICE)
         yield Footer()
 
+    # Resolver por ID desacopla las acciones del texto visible y su localización.
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         if event.option_id == "scan":
             self.app.switch_screen(TargetScreen())
@@ -111,11 +115,13 @@ class MenuScreen(Screen[None]):
 
 
 class ModuleListScreen(FlowScreen):
+    # Mantener el contenedor mínimo permite cargar el catálogo desde el registro actual.
     def compose(self) -> ComposeResult:
         yield Header()
         yield DataTable[str]()
         yield Footer()
 
+    # Leer el registro al montar evita duplicar la lista de módulos en la interfaz.
     def on_mount(self) -> None:
         table = self.query_one(DataTable)
         table.add_columns("Módulo", "Datos aceptados")
@@ -124,6 +130,7 @@ class ModuleListScreen(FlowScreen):
 
 
 class TargetScreen(FlowScreen):
+    # Generar campos desde FIELDS evita que la interfaz diverja del modelo de entrada.
     def compose(self) -> ComposeResult:
         yield Header()
         yield Label("Rellena los datos que quieras investigar (deja vacíos los demás)")
@@ -133,6 +140,7 @@ class TargetScreen(FlowScreen):
         yield Button("Continuar", id="next", variant="primary")
         yield Footer()
 
+    # Validar antes de avanzar evita iniciar consultas con datos incompletos o mal formados.
     def on_button_pressed(self, _event: Button.Pressed) -> None:
         values = {field: self.query_one(f"#{field}", Input).value for field in FIELDS}
         try:
@@ -150,10 +158,12 @@ class TargetScreen(FlowScreen):
 
 
 class ModulesScreen(FlowScreen):
+    # Conservar el objetivo en la pantalla permite cambiar selección sin reconstruir entradas.
     def __init__(self, target: Target) -> None:
         super().__init__()
         self._target = target
 
+    # Mostrar solo módulos aplicables evita prometer consultas que no aceptan el objetivo.
     def compose(self) -> ComposeResult:
         provided = self._target.provided()
         modules = applicable_modules(self._target)
@@ -177,6 +187,7 @@ class ModulesScreen(FlowScreen):
             yield Button("Cancelar", id="cancel", variant="error")
         yield Footer()
 
+    # Comprobar selección y configuración antes de iniciar evita ejecuciones mal definidas.
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "cancel":
             self.action_menu()
@@ -201,6 +212,7 @@ class ModulesScreen(FlowScreen):
 class RunScreen(FlowScreen):
     BINDINGS: ClassVar[list[Binding | tuple[str, str] | tuple[str, str, str]]] = []
 
+    # La pantalla conserva el contexto necesario para informar y persistir el mismo trabajo.
     def __init__(
         self,
         target: Target,
@@ -214,6 +226,7 @@ class RunScreen(FlowScreen):
         self._output_dir = output_dir
         self._output_format = output_format
 
+    # Preparar controles antes del worker garantiza que su progreso tenga destinos visibles.
     def compose(self) -> ComposeResult:
         yield Header()
         yield Label(f"Consultando {len(self._modules)} módulo(s)…")
@@ -223,14 +236,18 @@ class RunScreen(FlowScreen):
         yield Button("Volver al menú", id="menu", disabled=True)
         yield Footer()
 
+    # Esperar al montaje evita actualizaciones de progreso antes de que existan los widgets.
     def on_mount(self) -> None:
         self.investigate()
 
+    # Ejecutar fuera del hilo de interfaz mantiene la terminal receptiva durante consultas lentas.
     @work(thread=True)
     def investigate(self) -> None:
+        # Textual requiere que las actualizaciones de widgets vuelvan al hilo de interfaz.
         def notify_progress(result: ModuleResult, _completed: int, _total: int) -> None:
             self.app.call_from_thread(self._advance, result)
 
+        # Mantener el progreso por fuente visible sin acoplar módulos a Textual.
         def notify_module_progress(name: str, completed: int, total: int) -> None:
             self.app.call_from_thread(self._show_module_progress, name, completed, total)
 
@@ -251,6 +268,7 @@ class RunScreen(FlowScreen):
             self.app.switch_screen, ResultScreen(report, directory, paths)
         )
 
+    # Actualizar una fila por módulo mantiene el avance legible sin exponer datos sensibles.
     def _advance(self, result: ModuleResult) -> None:
         color = STATUS_STYLES[result.status]
         self.query_one(ProgressBar).advance(1)
@@ -259,6 +277,7 @@ class RunScreen(FlowScreen):
             f"{len(result.findings)} hallazgos ({result.duration:.1f} s)"
         )
 
+    # El total cero identifica preparación de un módulo que aún no reporta tareas internas.
     def _show_module_progress(self, name: str, completed: int, total: int) -> None:
         if total:
             self.query_one("#module-progress", Static).update(
@@ -267,22 +286,26 @@ class RunScreen(FlowScreen):
         else:
             self.query_one("#module-progress", Static).update(f"Consultando {name}…")
 
+    # Habilitar retorno tras un fallo evita dejar al usuario atrapado en una pantalla de espera.
     def _show_error(self, message: str) -> None:
         self.query_one(RichLog).write(f"[bold red]{message}[/]")
         self.query_one("#menu", Button).disabled = False
 
+    # Mantener la navegación por eventos respeta el flujo estándar de Textual.
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "menu":
             self.action_menu()
 
 
 class ResultScreen(FlowScreen):
+    # Agrupar el reporte y sus rutas mantiene visibles los resultados junto a su ubicación guardada.
     def __init__(self, report: Report, directory: Path, paths: list[Path]) -> None:
         super().__init__()
         self._report = report
         self._directory = directory
         self._paths = paths
 
+    # Componer tablas según el contenido evita mostrar paneles vacíos como resultados.
     def compose(self) -> ComposeResult:
         findings = sum(len(result.findings) for result in self._report.results)
         yield Header()
@@ -312,6 +335,7 @@ class ResultScreen(FlowScreen):
         yield Label("Esc: volver al menú")
         yield Footer()
 
+    # Poblar tablas tras el montaje asegura que las consultas de widgets ya estén disponibles.
     def on_mount(self) -> None:
         if self._report.findings:
             findings_table = self.query_one("#findings", DataTable)
@@ -358,11 +382,13 @@ class ResultScreen(FlowScreen):
 class OsintApp(App[None]):
     TITLE = "OSINTBODY"
 
+    # Mantener el formato en la aplicación permite que la elección persista durante el flujo.
     def __init__(self, output_format: OutputFormat = "all") -> None:
         super().__init__()
         self.output_format = output_format
         self._web_server: BaseWSGIServer | None = None
 
+    # Crear el servidor de forma diferida evita abrir un puerto si el usuario no pide la web.
     def open_website(self) -> None:
         url = f"http://{HOST}:{PORT}"
         try:
@@ -374,10 +400,12 @@ class OsintApp(App[None]):
         except OSError as exc:
             self.notify(f"No se pudo iniciar el sitio web: {exc}", severity="error")
 
+    # Entrar al menú al montar respeta el ciclo de vida de la aplicación Textual.
     def on_mount(self) -> None:
         self.push_screen(MenuScreen())
 
 
+# Exponer una sola función de arranque simplifica la integración con CLI y pruebas.
 def run(output_format: OutputFormat = "all") -> None:
     logging.getLogger("osint_tool").addHandler(logging.NullHandler())
     OsintApp(output_format).run()

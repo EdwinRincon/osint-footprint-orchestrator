@@ -51,6 +51,7 @@ class BreachDetail:
     password_risk: str = ""
     verified: bool = False
 
+    # Separar el resumen hace que distintos informes muestren el detalle con el mismo criterio.
     def summary(self) -> str:
         """Texto breve y legible para el informe."""
         parts = [
@@ -63,6 +64,7 @@ class BreachDetail:
         ]
         return SUMMARY_SEPARATOR.join(part for part in parts if part)
 
+    # La conversión al serializar conserva el contrato JSON y evita mutaciones internas.
     def to_raw(self) -> dict[str, Any]:
         """Datos originales aptos para JSON."""
         raw = asdict(self)
@@ -70,6 +72,7 @@ class BreachDetail:
         return raw
 
 
+# Validar la forma de la respuesta evita tratar errores de la API como resultados encontrados.
 def _breach_names(payload: object) -> list[str]:
     """Extrae los nombres de brecha de la respuesta, sin duplicados.
 
@@ -88,6 +91,7 @@ def _breach_names(payload: object) -> list[str]:
     return list(dict.fromkeys(names))
 
 
+# La respuesta externa es heterogénea; normalizar en un punto reduce casos especiales aguas abajo.
 def _text(value: Any) -> str:
     """Texto limpio; los enteros (p. ej. un año) se convierten, lo demás se ignora."""
     if isinstance(value, bool):
@@ -97,6 +101,7 @@ def _text(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
+# Un modelo explícito permite conservar campos seleccionados sin propagar el JSON externo.
 def _to_detail(entry: dict[str, Any]) -> BreachDetail:
     records = entry.get("xposed_records")
     data_types = _text(entry.get("xposed_data")).split(DATA_TYPES_SEPARATOR)
@@ -111,6 +116,7 @@ def _to_detail(entry: dict[str, Any]) -> BreachDetail:
     )
 
 
+# Indexar por nombre evita emparejar detalles si la API reordena sus entradas.
 def _breach_details(payload: object) -> dict[str, BreachDetail]:
     """Detalle por nombre de brecha. Una respuesta con todo a null produce un dict vacío."""
     exposed = payload.get("ExposedBreaches") if isinstance(payload, dict) else None
@@ -124,6 +130,7 @@ def _breach_details(payload: object) -> dict[str, BreachDetail]:
     }
 
 
+# Centralizar esta construcción evita filtrar la dirección consultada en el resumen de cobertura.
 def _source_check(source: str, status: SourceCheckStatus, detail: str) -> SourceCheck:
     """Cobertura de la consulta; sin el email ni la URL, solo el resultado."""
     return SourceCheck(source=source, status=status, detail=detail)
@@ -138,6 +145,7 @@ class BreachesModule:
     web_label = "Brechas conocidas"
     web_description = "Consulta XposedOrNot para brechas asociadas al email proporcionado."
 
+    # La inyección mantiene las pruebas deterministas y evita depender de la red real.
     def __init__(
         self,
         session: requests.Session | None = None,
@@ -147,6 +155,7 @@ class BreachesModule:
         self._session = build_session() if session is None else session
         self._settings = load_settings() if settings is None else settings
 
+    # Mantener los nombres aunque falle el enriquecimiento evita perder el resultado primario.
     def run(self, target: Target) -> ModuleOutput:
         if not target.email:
             return ModuleOutput()
@@ -172,15 +181,18 @@ class BreachesModule:
             ],
         )
 
+    # Representar el 404 como cobertura evita confundir ausencia con un fallo de ejecución.
     @staticmethod
     def _not_found(http_status: int) -> ModuleOutput:
         check = _source_check(SOURCE, SourceCheckStatus.NOT_FOUND, f"HTTP {http_status}")
         return ModuleOutput(source_checks=[check])
 
+    # Codificar el email como un componente evita que sus caracteres alteren la URL de consulta.
     @staticmethod
     def _build_url(template: str, email: str) -> str:
         return template.format(email=quote(email, safe=""))
 
+    # El detalle es secundario; su fallo no debe invalidar hallazgos ya confirmados.
     def _fetch_details(self, email: str) -> tuple[dict[str, BreachDetail], SourceCheck]:
         """Enriquecimiento opcional: ningún fallo aquí descarta los nombres ya obtenidos."""
         url = self._build_url(self._settings.breaches_analytics_url, email)
@@ -206,6 +218,7 @@ class BreachesModule:
             ANALYTICS_SOURCE, SourceCheckStatus.FOUND, f"HTTP {response.status_code}"
         )
 
+    # Conservar la referencia del proveedor permite verificar cada nombre sin duplicar datos.
     def _build_finding(self, breach_name: str, detail: BreachDetail | None) -> Finding:
         return Finding(
             entity_type="email",

@@ -37,7 +37,9 @@ LINE_TYPES: dict[int, str] = {
 LINE_TYPE_FALLBACK = "other"
 
 
+# Compartir origen y estructura evita diferencias entre los metadatos derivados del número.
 def _finding(type_: str, value: str, confidence: float = 1.0) -> Finding:
+    # Compartir la etiqueta de fuente facilita atribuir metadatos calculados localmente.
     return Finding(
         entity_type="phone",
         type=type_,
@@ -47,6 +49,7 @@ def _finding(type_: str, value: str, confidence: float = 1.0) -> Finding:
     )
 
 
+# Omitir números no válidos evita presentar metadatos de prefijo como datos de una línea real.
 def _parse_valid(raw: str) -> PhoneNumber:
     """Interpreta el número (formato internacional) o lanza `ModuleSkipped`."""
     try:
@@ -60,7 +63,9 @@ def _parse_valid(raw: str) -> PhoneNumber:
     return number
 
 
+# Una región ausente debe seguir ausente en vez de convertirse en una ubicación inventada.
 def _region_finding(number: PhoneNumber) -> Finding | None:
+    # No inventar una región mantiene explícita la falta de datos del prefijo.
     region = phonenumbers.region_code_for_number(number)
     if not region:
         return None
@@ -68,11 +73,14 @@ def _region_finding(number: PhoneNumber) -> Finding | None:
     return _finding("phone_region", f"{region} ({place})" if place else region)
 
 
+# Conservar tipos desconocidos ayuda a distinguir falta de metadatos de error de consulta.
 def _line_type_finding(number: PhoneNumber) -> Finding:
+    # El valor de reserva conserva el hallazgo cuando la biblioteca desconoce el tipo.
     line_type = LINE_TYPES.get(phonenumbers.number_type(number), LINE_TYPE_FALLBACK)
     return _finding("phone_line_type", line_type)
 
 
+# Dejar vacío el operador desconocido evita atribuir una compañía sin respaldo.
 def _carrier_finding(number: PhoneNumber) -> Finding | None:
     operator = carrier.name_for_number(number, LANG)
     # Muchos países no tienen datos de operador.
@@ -90,6 +98,7 @@ class PhoneModule:
         "Deriva región, tipo de línea y prefijo de operador; no identifica a su titular."
     )
 
+    # Mantener el análisis local evita enviar el número a servicios externos.
     def run(self, target: Target) -> list[Finding]:
         if not target.phone:
             return []

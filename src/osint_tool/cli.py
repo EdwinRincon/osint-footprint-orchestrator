@@ -18,6 +18,7 @@ app = typer.Typer(
 )
 
 
+# Se conserva un único punto de entrada para que las opciones globales funcionen sin subcomandos.
 @app.callback(invoke_without_command=True)
 def main_command(
     version: Annotated[bool, typer.Option("--version", help="Muestra la versión.")] = False,
@@ -32,6 +33,7 @@ def main_command(
     run_tui()
 
 
+# Traducir SystemExit a un entero permite reutilizar la CLI desde otros puntos de entrada.
 def main(argv: list[str] | None = None) -> int:
     """Ejecuta la interfaz de terminal."""
     command = typer.main.get_command(app)

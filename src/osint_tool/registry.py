@@ -31,6 +31,7 @@ class Module(Protocol):
     name: str
     accepts: frozenset[str]
 
+    # El protocolo fija la frontera común sin acoplar el servicio a implementaciones concretas.
     def run(self, target: Target) -> list[Finding] | ModuleOutput:
         """Consulta la fuente y devuelve hallazgos, opcionalmente con cobertura por fuente."""
         ...
@@ -40,6 +41,7 @@ class Module(Protocol):
 class ProgressAwareModule(Protocol):
     """Optional protocol for modules that can report progress while running."""
 
+    # Mantener el progreso como capacidad opcional evita imponerlo a todos los módulos.
     def set_progress_callback(
         self, callback: Callable[[int, int], None] | None
     ) -> None: ...
@@ -50,6 +52,7 @@ M = TypeVar("M", bound=Module)
 _REGISTRY: dict[str, type[Module]] = {}
 
 
+# Validar al registrar falla pronto, antes de que una configuración inválida llegue al usuario.
 def register(cls: type[M]) -> type[M]:
     """Decorador que añade una clase de módulo al registro."""
     if not cls.name:
@@ -65,11 +68,13 @@ def register(cls: type[M]) -> type[M]:
     return cls
 
 
+# Entregar una copia protege el registro global de mutaciones externas.
 def all_modules() -> dict[str, type[Module]]:
     """Copia del registro (nombre -> clase), para `--list-modules`."""
     return dict(_REGISTRY)
 
 
+# Exponer solo módulos opt-in evita activar accidentalmente consultas externas en la web.
 def web_optional_modules() -> list[tuple[str, str]]:
     """Opciones activables en la web, declaradas por cada módulo."""
     return [
@@ -79,6 +84,7 @@ def web_optional_modules() -> list[tuple[str, str]]:
     ]
 
 
+# El catálogo permite que la interfaz presente capacidades declaradas junto al módulo.
 def web_module_catalog() -> list[tuple[str, str, str, frozenset[str], bool]]:
     """Presentación de fuentes web y datos de entrada que las habilitan."""
     return [
@@ -93,6 +99,7 @@ def web_module_catalog() -> list[tuple[str, str, str, frozenset[str], bool]]:
     ]
 
 
+# Filtrar por entradas disponibles evita consultar fuentes que no pueden aportar resultados.
 def applicable_modules(target: Target, names: Iterable[str] | None = None) -> list[Module]:
     """Instancias de los módulos que aceptan algún dato del `Target`.
 

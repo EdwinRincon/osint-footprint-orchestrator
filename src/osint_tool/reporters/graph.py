@@ -31,6 +31,7 @@ class GraphReporter:
 
     name = "graph"
 
+    # No generar recursos vacíos evita artefactos que sugieran relaciones inexistentes.
     def write(self, report: Report, directory: Path) -> list[Path]:
         if not report.relations:
             return []
@@ -59,10 +60,12 @@ class GraphReporter:
         return paths
 
 
+# Mantener este adaptador conserva la forma anterior mientras se comparte el generador nuevo.
 def _cytoscape_elements(report: Report) -> list[dict[str, object]]:
     return _cytoscape_graph_data(report)["elements"]
 
 
+# Construir datos intermedios separa reglas de presentación del renderizado de plantillas.
 def _cytoscape_graph_data(report: Report) -> CytoscapeGraphData:
     target_nodes = {
         node_id(kind, value) for kind, value in report.target.to_dict().items()
@@ -78,6 +81,7 @@ def _cytoscape_graph_data(report: Report) -> CytoscapeGraphData:
     elements: list[dict[str, object]] = []
     group_index = 0
 
+    # Reutilizar nodos por identificador evita duplicados en relaciones de múltiples fuentes.
     def node_element(identifier: str) -> dict[str, object]:
         if identifier not in nodes:
             kind, _, value = identifier.partition(":")
@@ -96,11 +100,13 @@ def _cytoscape_graph_data(report: Report) -> CytoscapeGraphData:
             nodes[identifier] = element
         return nodes[identifier]
 
+    # Mantener solo una instancia visible de cada nodo hace el grafo más legible.
     def add_visible_node(identifier: str) -> None:
         visible_nodes.setdefault(identifier, node_element(identifier))
 
     for (source, label), relations in relation_groups.items():
         if len(relations) >= AGGREGATE_THRESHOLD:
+            # Mantén el grafo inicial legible y conserva las aristas individuales para expandirlas.
             group_id = f"osint-group-{group_index}"
             group_index += 1
             group_label = f"{label}\n{len(relations)} entidades"
@@ -177,6 +183,7 @@ def _cytoscape_graph_data(report: Report) -> CytoscapeGraphData:
     }
 
 
+# Acortar etiquetas limita el solapamiento visual sin alterar el valor guardado en el nodo.
 def _display_value(kind: str, value: str) -> str:
     if kind == "profile":
         parsed = urlsplit(value)

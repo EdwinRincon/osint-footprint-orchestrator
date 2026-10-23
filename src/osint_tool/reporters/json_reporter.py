@@ -14,6 +14,7 @@ class JsonReporter:
 
     name = "json"
 
+    # JSON conserva los campos estructurados para análisis automatizado posterior.
     def write(self, report: Report, directory: Path) -> list[Path]:
         path = directory / "report.json"
         data = {"notice": LEGAL_NOTICE, **report.to_dict()}
