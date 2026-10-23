@@ -160,6 +160,31 @@ def test_html_contiene_las_secciones_principales(tmp_path: Path) -> None:
     assert 'class="badge skipped"' in html
 
 
+def test_html_no_incluye_el_grafo_interactivo(tmp_path: Path) -> None:
+    (tmp_path / "graph.html").write_text("<p>graph</p>", encoding="utf-8")
+    html = _render(tmp_path, _report())
+
+    assert "Grafo interactivo" not in html
+    assert "report-graph" not in html
+    assert "fullscreen-toggle" not in html
+    assert "<p>graph</p>" not in html
+
+
+def test_html_pliega_tablas_grandes_sin_omitir_datos(tmp_path: Path) -> None:
+    report = _report()
+    result = report.results[0]
+    result.findings *= 101
+    result.source_checks *= 101
+    report.relations *= 101
+
+    html = _render(tmp_path, report)
+
+    assert "<summary>Mostrar los 101 hallazgos</summary>" in html
+    assert "<summary>Mostrar las 101 comprobaciones</summary>" in html
+    assert "<summary>Mostrar las 101 relaciones</summary>" in html
+    assert html.count(FINDING_DETAIL) == 101
+
+
 def test_html_muestra_el_detalle_del_hallazgo(tmp_path: Path) -> None:
     html = _render(tmp_path, _report())
     assert "<th>Detalle</th><th>Fuente</th>" in html
@@ -225,10 +250,10 @@ def test_html_no_enlaza_referencias_con_esquema_no_web(tmp_path: Path) -> None:
     assert "No disponible" in html
 
 
-def test_html_sin_grafo_no_muestra_imagen(tmp_path: Path) -> None:
-    assert "<img" not in _render(tmp_path, _report())
-
-
-def test_html_con_grafo_muestra_imagen(tmp_path: Path) -> None:
+def test_html_omite_la_vista_estatica_aunque_exista_una_imagen_antigua(
+    tmp_path: Path,
+) -> None:
     (tmp_path / "graph.png").write_bytes(b"png")
-    assert '<img src="graph.png"' in _render(tmp_path, _report())
+    html = _render(tmp_path, _report())
+    assert "<img" not in html
+    assert "Vista estática" not in html

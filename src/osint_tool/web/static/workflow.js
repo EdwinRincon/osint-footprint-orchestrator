@@ -14,6 +14,7 @@
   const checkBody = document.querySelector("#checks-body");
   const findingsBody = document.querySelector("#findings-body");
   const relationsBody = document.querySelector("#relations-body");
+  const relationsCount = document.querySelector("#relations-count");
   const filterCount = document.querySelector("#filter-count");
   const findingsCount = document.querySelector("#findings-count");
   const queryInput = document.querySelector("#query");
@@ -24,14 +25,17 @@
   const reportReady = document.querySelector("#report-ready");
   const loadMoreButton = document.querySelector("#load-more");
   const findingsLoadMoreButton = document.querySelector("#findings-load-more");
+  const relationsLoadMoreButton = document.querySelector("#relations-load-more");
   const pageSize = 50;
   let checks = [];
   let findings = [];
   let relations = [];
   let filteredChecks = [];
   let filteredFindings = [];
+  let filteredRelations = [];
   let shownCount = 0;
   let shownFindingsCount = 0;
+  let shownRelationsCount = 0;
   let pollDelay = 700;
 
   function setProgress(value) {
@@ -232,6 +236,29 @@
     findingsLoadMoreButton.hidden = shownFindingsCount >= filteredFindings.length;
   }
 
+  function renderNextRelationsPage() {
+    const next = filteredRelations.slice(shownRelationsCount, shownRelationsCount + pageSize);
+    for (const relation of next) {
+      const row = document.createElement("tr");
+      for (const value of [
+        relation.source,
+        relation.target,
+        relation.label,
+        relation.evidence.join(", ") || "No especificada",
+        Number(relation.confidence).toFixed(2),
+      ]) {
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        row.append(cell);
+      }
+      relationsBody.append(row);
+    }
+    shownRelationsCount += next.length;
+    relationsLoadMoreButton.hidden = shownRelationsCount >= filteredRelations.length;
+    relationsCount.textContent =
+      `Mostrando ${shownRelationsCount} de ${filteredRelations.length} relaciones.`;
+  }
+
   function matchesQuery(values, query) {
     return !query || values.join(" ").toLocaleLowerCase().includes(query);
   }
@@ -293,6 +320,7 @@
     const moduleSources = new Set(
       filteredFindings.map((finding) => finding.source),
     );
+    filteredRelations = [];
     for (const relation of relations) {
       const evidence = relation.evidence.join(", ");
       const relatedToVisibleFinding = relation.evidence.includes("input")
@@ -302,20 +330,12 @@
         query,
       );
       if (!relatedToVisibleFinding || !relatedToQuery) continue;
-      const row = document.createElement("tr");
-      for (const value of [
-        relation.source,
-        relation.target,
-        relation.label,
-        evidence || "No especificada",
-        Number(relation.confidence).toFixed(2),
-      ]) {
-        const cell = document.createElement("td");
-        cell.textContent = value;
-        row.append(cell);
-      }
-      relationsBody.append(row);
+      filteredRelations.push(relation);
     }
+    shownRelationsCount = 0;
+    relationsCount.textContent = `Mostrando 0 de ${filteredRelations.length} relaciones.`;
+    relationsLoadMoreButton.hidden = true;
+    renderNextRelationsPage();
   }
 
   reportForm.addEventListener("change", applyFilters);
@@ -323,6 +343,7 @@
   moduleFilter.addEventListener("change", applyFilters);
   loadMoreButton.addEventListener("click", renderNextPage);
   findingsLoadMoreButton.addEventListener("click", renderNextFindingsPage);
+  relationsLoadMoreButton.addEventListener("click", renderNextRelationsPage);
   reportForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     reportError.hidden = true;
@@ -336,8 +357,13 @@
         body: new URLSearchParams(new FormData(reportForm)),
       });
       document.querySelector("#report-link").href = payload.report_url;
-      document.querySelector("#report-files").textContent =
-        `Archivos: ${payload.files.join(", ")}`;
+      document.querySelector("#report-download-html").href =
+        payload.download_urls["report.html"];
+      document.querySelector("#report-download-json").href =
+        payload.download_urls["report.json"];
+      const graphLink = document.querySelector("#graph-link");
+      graphLink.hidden = !payload.graph_url;
+      if (payload.graph_url) graphLink.href = payload.graph_url;
       reportReady.hidden = false;
     } catch (error) {
       showError(reportError, error.message);

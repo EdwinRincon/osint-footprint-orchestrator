@@ -1,154 +1,88 @@
-"""Grafo de relaciones con Graphviz: escribe graph.dot y, si es posible, graph.png."""
+"""Genera el grafo interactivo local incluido en el informe HTML."""
 
 from __future__ import annotations
 
-import json
-import logging
 import shutil
-from collections.abc import Callable, Sequence
+from collections import defaultdict
+from collections.abc import Callable
 from pathlib import Path
+from typing import TypedDict
 from urllib.parse import urlsplit
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-from osint_tool.cli_runner import CliResult, run_cli
 from osint_tool.correlator import node_id
-from osint_tool.external_errors import ExternalToolError, ToolNotFoundError
-from osint_tool.models import Report
+from osint_tool.models import Relation, Report
 
-logger = logging.getLogger(__name__)
-
-LOW_CONFIDENCE = 0.7  # por debajo, la arista se dibuja discontinua
-MAX_LABEL = 40
-
-# tipo de nodo -> (forma, color)
-KIND_STYLE: dict[str, tuple[str, str]] = {
-    "name": ("ellipse", "#ffe9a8"),
-    "email": ("box", "#cfe8ff"),
-    "username": ("ellipse", "#d6f5d6"),
-    "profile": ("note", "#d6f5d6"),
-    "domain": ("box", "#e5d4ff"),
-    "phone": ("box", "#ffd6d6"),
-    "breach": ("octagon", "#ffb3b3"),
-}
-DEFAULT_STYLE = ("box", "#eeeeee")
+AGGREGATE_THRESHOLD = 25
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 WEB_STATIC_DIR = Path(__file__).parent.parent / "web" / "static"
 
 
-def _esc(text: str) -> str:
-    """Escapa texto para meterlo entre comillas en DOT (evita romper la sintaxis)."""
-    return text.replace("\\", "\\\\").replace('"', '\\"').replace("\r", " ").replace("\n", " ")
-
-
-def _quote(text: str) -> str:
-    return f'"{_esc(text)}"'
-
-
-def _shorten(text: str) -> str:
-    return text if len(text) <= MAX_LABEL else text[: MAX_LABEL - 1] + "…"
-
-
-def build_dot(report: Report) -> str:
-    """Genera el grafo en formato DOT: nodos del Target y de las relaciones."""
-    nodes = {node_id(k, v) for k, v in report.target.to_dict().items()}
-    for rel in report.relations:
-        nodes.update((rel.source, rel.target))
-
-    lines = [
-        "digraph osint {",
-        "  rankdir=LR;",
-        '  node [fontname="Helvetica" fontsize=10 style=filled];',
-        '  edge [fontname="Helvetica" fontsize=9];',
-    ]
-    for node in sorted(nodes):
-        kind, _, value = node.partition(":")
-        shape, color = KIND_STYLE.get(kind, DEFAULT_STYLE)
-        label = f"{_esc(kind)}\\n{_esc(_shorten(value))}"  # \n de DOT = salto de línea
-        lines.append(f'  {_quote(node)} [label="{label}" shape={shape} fillcolor="{color}"];')
-
-    for rel in report.relations:
-        label = _esc(rel.label)
-        if rel.confidence < 1.0:
-            label += f" ({rel.confidence:.0%})"
-        style = " style=dashed" if rel.confidence < LOW_CONFIDENCE else ""
-        lines.append(f'  {_quote(rel.source)} -> {_quote(rel.target)} [label="{label}"{style}];')
-
-    lines.append("}")
-    return "\n".join(lines) + "\n"
+class CytoscapeGraphData(TypedDict):
+    elements: list[dict[str, object]]
+    groups: dict[str, list[dict[str, object]]]
+    node_count: int
+    relation_count: int
 
 
 class GraphReporter:
-    """Escribe `graph.dot` y lo renderiza a `graph.png` si Graphviz está instalado."""
+    """Escribe los recursos locales necesarios para explorar el grafo interactivo."""
 
     name = "graph"
 
-    def __init__(self, runner: Callable[[Sequence[str]], CliResult] = run_cli) -> None:
-        """El ejecutor se puede inyectar para probar sin Graphviz."""
-        self._runner = runner
-
     def write(self, report: Report, directory: Path) -> list[Path]:
-        dot_path = directory / "graph.dot"
-        dot_path.write_text(build_dot(report), encoding="utf-8")
-        paths = [dot_path]
-        if report.relations:
-            graph_path = directory / "graph.html"
-            environment = Environment(
-                loader=FileSystemLoader(TEMPLATES_DIR),
-                autoescape=True,
-                undefined=StrictUndefined,
-            )
-            graph_path.write_text(
-                environment.get_template("graph.html").render(
-                    graph_data=json.dumps(
-                        _cytoscape_elements(report), ensure_ascii=False, separators=(",", ":")
-                    )
-                ),
-                encoding="utf-8",
-            )
-            paths.extend(
-                (
-                    graph_path,
-                    directory / "graph.js",
-                    directory / "cytoscape.min.js",
-                    directory / "CYTOSCAPE-LICENSE.txt",
-                )
-            )
-            shutil.copyfile(WEB_STATIC_DIR / "graph.js", paths[-3])
-            shutil.copyfile(WEB_STATIC_DIR / "vendor" / "cytoscape.min.js", paths[-2])
-            shutil.copyfile(WEB_STATIC_DIR / "vendor" / "CYTOSCAPE-LICENSE.txt", paths[-1])
+        if not report.relations:
+            return []
 
-        png_path = directory / "graph.png"
-
-        try:
-            result = self._runner(["dot", "-Tpng", str(dot_path), "-o", str(png_path)])
-        except ToolNotFoundError:
-            logger.warning("Graphviz no está instalado: solo se genera graph.dot")
-            return paths
-        except ExternalToolError as exc:
-            logger.warning("Graphviz falló: %s", exc)
-            return paths
-
-        if result.returncode != 0:
-            logger.warning("Graphviz terminó con código %s", result.returncode)
-            return paths
-        paths.append(png_path)
+        graph_path = directory / "graph.html"
+        environment = Environment(
+            loader=FileSystemLoader(TEMPLATES_DIR),
+            autoescape=True,
+            undefined=StrictUndefined,
+        )
+        graph_path.write_text(
+            environment.get_template("graph.html").render(
+                graph_data=_cytoscape_graph_data(report)
+            ),
+            encoding="utf-8",
+        )
+        paths = [
+            graph_path,
+            directory / "graph.js",
+            directory / "cytoscape.min.js",
+            directory / "CYTOSCAPE-LICENSE.txt",
+        ]
+        shutil.copyfile(WEB_STATIC_DIR / "graph.js", paths[1])
+        shutil.copyfile(WEB_STATIC_DIR / "vendor" / "cytoscape.min.js", paths[2])
+        shutil.copyfile(WEB_STATIC_DIR / "vendor" / "CYTOSCAPE-LICENSE.txt", paths[3])
         return paths
 
 
 def _cytoscape_elements(report: Report) -> list[dict[str, object]]:
+    return _cytoscape_graph_data(report)["elements"]
+
+
+def _cytoscape_graph_data(report: Report) -> CytoscapeGraphData:
     target_nodes = {
         node_id(kind, value) for kind, value in report.target.to_dict().items()
     }
     nodes: dict[str, dict[str, object]] = {}
-    edges: list[dict[str, object]] = []
+    visible_nodes: dict[str, dict[str, object]] = {}
+    relation_groups: dict[tuple[str, str], list[tuple[int, Relation]]] = defaultdict(list)
+
     for relation_index, relation in enumerate(report.relations):
-        for identifier in (relation.source, relation.target):
-            if identifier in nodes:
-                continue
+        relation_groups[(relation.source, relation.label)].append((relation_index, relation))
+
+    groups: dict[str, list[dict[str, object]]] = {}
+    elements: list[dict[str, object]] = []
+    group_index = 0
+
+    def node_element(identifier: str) -> dict[str, object]:
+        if identifier not in nodes:
             kind, _, value = identifier.partition(":")
             label_value = _display_value(kind, value)
-            nodes[identifier] = {
+            element: dict[str, object] = {
                 "data": {
                     "id": identifier,
                     "kind": kind,
@@ -158,20 +92,89 @@ def _cytoscape_elements(report: Report) -> list[dict[str, object]]:
                 }
             }
             if identifier in target_nodes:
-                nodes[identifier]["classes"] = "target"
-        edges.append(
-            {
+                element["classes"] = "target"
+            nodes[identifier] = element
+        return nodes[identifier]
+
+    def add_visible_node(identifier: str) -> None:
+        visible_nodes.setdefault(identifier, node_element(identifier))
+
+    for (source, label), relations in relation_groups.items():
+        if len(relations) >= AGGREGATE_THRESHOLD:
+            group_id = f"osint-group-{group_index}"
+            group_index += 1
+            group_label = f"{label}\n{len(relations)} entidades"
+            group_confidence = sum(
+                relation.confidence for _, relation in relations
+            ) / len(relations)
+            group = {
                 "data": {
-                    "id": f"relation-{relation_index}",
-                    "source": relation.source,
-                    "target": relation.target,
-                    "label": relation.label,
-                    "confidence": relation.confidence,
-                    "evidence": list(relation.evidence),
-                }
+                    "id": group_id,
+                    "kind": "group",
+                    "value": group_label,
+                    "label": group_label,
+                    "is_group": True,
+                    "group_count": len(relations),
+                    "confidence": group_confidence,
+                },
+                "classes": "aggregate",
             }
-        )
-    return [*nodes.values(), *edges]
+            add_visible_node(source)
+            elements.append(group)
+            elements.append(
+                {
+                    "data": {
+                        "id": f"{group_id}-edge",
+                        "source": source,
+                        "target": group_id,
+                        "label": f"{label} ({len(relations)} relaciones agrupadas)",
+                        "confidence": group_confidence,
+                        "evidence": [],
+                    }
+                }
+            )
+            groups[group_id] = []
+            for relation_index, relation in relations:
+                target = node_element(relation.target)
+                groups[group_id].append(
+                    {
+                        "node": target,
+                        "edge": {
+                            "data": {
+                                "id": f"relation-{relation_index}",
+                                "source": relation.source,
+                                "target": relation.target,
+                                "label": relation.label,
+                                "confidence": relation.confidence,
+                                "evidence": list(relation.evidence),
+                            }
+                        },
+                    }
+                )
+            continue
+
+        for relation_index, relation in relations:
+            add_visible_node(relation.source)
+            add_visible_node(relation.target)
+            elements.append(
+                {
+                    "data": {
+                        "id": f"relation-{relation_index}",
+                        "source": relation.source,
+                        "target": relation.target,
+                        "label": relation.label,
+                        "confidence": relation.confidence,
+                        "evidence": list(relation.evidence),
+                    }
+                }
+            )
+
+    return {
+        "elements": [*visible_nodes.values(), *elements],
+        "groups": groups,
+        "node_count": len(nodes),
+        "relation_count": len(report.relations),
+    }
 
 
 def _display_value(kind: str, value: str) -> str:

@@ -15,7 +15,7 @@ source .venv/Scripts/activate    # Windows (Git Bash)
 pip install -e ".[dev]"
 ```
 
-La instalación editable usa directamente el código fuente del proyecto. Para ver el grafo como imagen, instala también [Graphviz](https://graphviz.org/download/); sin él se conserva el archivo `graph.dot`.
+
 
 ## Uso en terminal
 
@@ -49,15 +49,19 @@ un dominio; comprobaciones de username, brechas de email y metadatos de teléfon
 corresponda. theHarvester es opcional y se activa explícitamente. La búsqueda muestra el
 avance; después puedes explorar y filtrar hallazgos, relaciones y comprobaciones por módulo,
 estado y texto antes de pulsar **Generar informe**. Los totales de cobertura conservan también
-las comprobaciones ocultas por filtros.
+las comprobaciones ocultas por filtros. Los resultados se muestran en bloques de 50 filas para
+mantener manejables las tablas extensas.
 
 ## Informes
 
 Al generar un informe, cada búsqueda guarda los resultados en una carpeta nueva dentro de
-`reports/`: `report.html`, `report.json`, el grafo interactivo `graph.html` y `graph.dot`
-(también `graph.png` si Graphviz está instalado). La visualización interactiva se distribuye
-localmente y funciona sin depender de una CDN. Las relaciones identifican su evidencia y son
-asociaciones observadas, no pruebas de identidad común.
+`reports/`: `report.html`, `report.json` y los recursos del grafo interactivo, incluido
+`graph.html`. Desde la web puedes abrir o descargar el informe HTML, descargar los datos JSON
+y abrir el grafo interactivo por separado; el informe HTML no incorpora el grafo. Las tablas
+extensas del informe se pueden desplegar bajo demanda. La visualización se distribuye localmente
+y funciona sin depender de una CDN.
+Las relaciones identifican su evidencia y son asociaciones observadas, no pruebas de identidad
+común.
 
 En el grafo puedes arrastrar y seleccionar nodos/aristas para consultar la evidencia, reajustar
 la distribución o descargar una imagen PNG. Los nodos representan identificadores observados;

@@ -99,10 +99,37 @@ def test_busqueda_es_asincrona_y_no_genera_informe_automaticamente(
         data={"statuses": ["found", "not_found", "inconclusive", "error"]},
     )
     assert generated.status_code == 200
-    report_url = generated.get_json()["report_url"]
+    generated_payload = generated.get_json()
+    report_url = generated_payload["report_url"]
     assert report_url.startswith("/reports/")
     assert b"Informe OSINT" in client.get(report_url).data
+    download_urls = generated_payload["download_urls"]
+    assert download_urls["report.html"] == report_url
+    assert generated_payload["graph_url"]
+    assert client.get(generated_payload["graph_url"]).status_code == 200
+    assert b"Grafo interactivo" not in client.get(report_url).data
+    report_json = client.get(download_urls["report.json"])
+    assert report_json.status_code == 200
+    assert report_json.mimetype == "application/json"
     assert len(list(salida.glob("*/report.html"))) == 1
+
+
+def test_resultados_incluyen_descargas_html_y_json(client: FlaskClient) -> None:
+    response = client.post("/", data={"domain": "ejemplo.com"})
+    results_page = client.get(response.headers["Location"]).data
+
+    assert results_page.index(b'id="generate-report"') < results_page.index(
+        b'id="findings-title"'
+    )
+    assert results_page.index(b'id="report-ready"') < results_page.index(
+        b'id="findings-title"'
+    )
+    assert b'id="report-download-html"' in results_page
+    assert b'id="report-download-json"' in results_page
+    assert b'id="relations-load-more"' in results_page
+    assert b'id="graph-link"' in results_page
+    assert b'download>' in results_page
+    assert b"PDF no disponible" in results_page
 
 
 def test_progreso_de_modulos_se_exhibe_durante_la_busqueda(
@@ -274,7 +301,11 @@ def test_informe_filtra_por_modulo_y_recalcula_relaciones(
         data={"statuses": ["found"], "module": "phone"},
     )
     assert generated.status_code == 200
-    report_url = generated.get_json()["report_url"]
+    generated_payload = generated.get_json()
+    report_url = generated_payload["report_url"]
+    assert generated_payload["graph_url"]
+    assert client.get(generated_payload["graph_url"]).status_code == 200
+    assert b"Grafo interactivo" not in client.get(report_url).data
     report_json = json.loads(
         client.get(report_url.replace("report.html", "report.json")).data
     )
@@ -400,6 +431,8 @@ def test_solo_se_sirven_ficheros_de_informe_permitidos(
     assert client.get("/reports/abc/report.html").status_code == 404
     assert client.get("/reports/20261013T184631-5d935f/secreto.txt").status_code == 404
     assert client.get("/reports/20261013T184631-5d935f/report.html").status_code == 404
+    assert client.get("/reports/20261013T184631-5d935f/graph.png").status_code == 404
+    assert client.get("/reports/20261013T184631-5d935f/graph.dot").status_code == 404
 
 
 def test_host_ajeno_se_rechaza(client: FlaskClient) -> None:

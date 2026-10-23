@@ -1,73 +1,21 @@
 from pathlib import Path
 
-from osint_tool.cli_runner import CliResult, ToolNotFoundError
 from osint_tool.models import Relation, Report, Target
-from osint_tool.reporters.graph import GraphReporter, _cytoscape_elements, build_dot
+from osint_tool.reporters.graph import (
+    AGGREGATE_THRESHOLD,
+    GraphReporter,
+    _cytoscape_elements,
+    _cytoscape_graph_data,
+)
 
 
 def _report(*relations: Relation) -> Report:
     return Report(target=Target(domain="ejemplo.com"), relations=list(relations))
 
 
-def test_dot_contiene_nodos_y_aristas() -> None:
-    rel = Relation("domain:ejemplo.com", "domain:a.ejemplo.com", "subdominio", 1.0)
-    dot = build_dot(_report(rel))
-    assert dot.startswith("digraph osint {")
-    assert '"domain:ejemplo.com" -> "domain:a.ejemplo.com" [label="subdominio"];' in dot
-
-
-def test_confianza_baja_se_dibuja_discontinua() -> None:
-    low = Relation("username:ana", "profile:https://x.test/ana", "perfil en X", 0.5)
-    high = Relation("domain:ejemplo.com", "domain:a.ejemplo.com", "subdominio", 1.0)
-    edges = [line for line in build_dot(_report(low, high)).splitlines() if "->" in line]
-    dashed = [line for line in edges if "style=dashed" in line]
-    assert len(dashed) == 1
-    assert "perfil en X (50%)" in dashed[0]
-
-
-def test_los_datos_externos_no_rompen_la_sintaxis_dot() -> None:
-    evil = Relation("domain:ejemplo.com", 'dns:x"]; evil [label="y', "registro DNS", 1.0)
-    dot = build_dot(_report(evil))
-    assert 'evil [label="y' not in dot
-    assert '\\"' in dot
-
-
-def test_sin_relaciones_aparecen_los_nodos_del_target() -> None:
-    dot = build_dot(Report(target=Target(email="ana@ejemplo.com")))
-    assert '"email:ana@ejemplo.com"' in dot
-
-
-def test_write_genera_dot_y_png(tmp_path: Path) -> None:
-    calls: list[list[str]] = []
-
-    def runner(args):  # type: ignore[no-untyped-def]
-        calls.append(list(args))
-        Path(args[-1]).write_bytes(b"png")
-        return CliResult(0, "", "")
-
-    paths = GraphReporter(runner).write(_report(), tmp_path)
-    assert paths == [tmp_path / "graph.dot", tmp_path / "graph.png"]
-    dot_path = tmp_path / "graph.dot"
-    png_path = tmp_path / "graph.png"
-    assert paths == [dot_path, png_path]
-    assert calls == [["dot", "-Tpng", str(dot_path), "-o", str(png_path)]]
-
-
-def test_sin_graphviz_solo_se_escribe_el_dot(tmp_path: Path) -> None:
-    def runner(args):  # type: ignore[no-untyped-def]
-        raise ToolNotFoundError("dot")
-
-    paths = GraphReporter(runner).write(_report(), tmp_path)
-    assert paths == [tmp_path / "graph.dot"]
-    assert (tmp_path / "graph.dot").is_file()
-
-
-def test_graphviz_con_error_solo_escribe_el_dot(tmp_path: Path) -> None:
-    paths = GraphReporter(lambda args: CliResult(1, "", "error")).write(_report(), tmp_path)
-    assert paths == [tmp_path / "graph.dot"]
-
-
-def test_write_genera_grafo_interactivo_local_con_evidencia(tmp_path: Path) -> None:
+def test_graph_reporter_escribe_solo_recursos_del_grafo_interactivo(
+    tmp_path: Path,
+) -> None:
     relation = Relation(
         "username:demo_user",
         "profile:https://example.test/demo_user",
@@ -75,24 +23,49 @@ def test_write_genera_grafo_interactivo_local_con_evidencia(tmp_path: Path) -> N
         0.5,
         ("WhatsMyName",),
     )
-    paths = GraphReporter(lambda args: CliResult(1, "", "Graphviz no disponible")).write(
-        _report(relation), tmp_path
-    )
+
+    paths = GraphReporter().write(_report(relation), tmp_path)
 
     assert paths == [
-        tmp_path / "graph.dot",
         tmp_path / "graph.html",
         tmp_path / "graph.js",
         tmp_path / "cytoscape.min.js",
         tmp_path / "CYTOSCAPE-LICENSE.txt",
     ]
+    assert not (tmp_path / "graph.dot").exists()
+    assert not (tmp_path / "graph.png").exists()
     graph_html = (tmp_path / "graph.html").read_text(encoding="utf-8")
     assert 'src="cytoscape.min.js"' in graph_html
+    assert 'id="export">Descargar imagen PNG</button>' in graph_html
+    assert 'id="graph-data"' in graph_html
+    assert "perfil observado en Example" in graph_html
+    assert 'id="export-status" role="status"' in graph_html
     assert "WhatsMyName" in graph_html
     assert (tmp_path / "cytoscape.min.js").stat().st_size > 100_000
     assert "Permission is hereby granted" in (
         tmp_path / "CYTOSCAPE-LICENSE.txt"
     ).read_text(encoding="utf-8")
+
+
+def test_grafo_sin_relaciones_no_escribe_archivos(tmp_path: Path) -> None:
+    assert GraphReporter().write(_report(), tmp_path) == []
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_el_grafo_agrupa_relaciones_repetidas_para_la_vista_inicial() -> None:
+    relations = [
+        Relation("domain:example.test", f"domain:host-{index}.example.test", "subdominio")
+        for index in range(AGGREGATE_THRESHOLD)
+    ]
+    graph_data = _cytoscape_graph_data(_report(*relations))
+    elements = graph_data["elements"]
+    group_nodes = [element for element in elements if element["data"].get("is_group")]
+
+    assert graph_data["node_count"] == AGGREGATE_THRESHOLD + 1
+    assert graph_data["relation_count"] == AGGREGATE_THRESHOLD
+    assert len(group_nodes) == 1
+    assert len(graph_data["groups"][group_nodes[0]["data"]["id"]]) == AGGREGATE_THRESHOLD
+    assert len(elements) == 3
 
 
 def test_grafo_marca_solo_los_datos_de_entrada_como_objetivo() -> None:

@@ -2,15 +2,20 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Informe OSINT</title>
   <style>
-    body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 960px;
-           padding: 0 1rem; color: #222; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; margin: 0 auto; max-width: 1440px;
+           padding: clamp(1.5rem, 4vw, 3rem) 1rem; color: #222; }
     .notice { background: #fff4d6; border-left: 4px solid #e0a800; padding: .6rem 1rem; }
     .notes { background: #e8f1fb; border-left: 4px solid #2f74c0; padding: .1rem 1rem; }
-    table { border-collapse: collapse; width: 100%; margin: .5rem 0 1.5rem; }
+    .table-wrap { overflow-x: auto; margin: .5rem 0 1.5rem;
+                  overscroll-behavior-inline: contain; }
+    table { border-collapse: collapse; width: 100%; min-width: 42rem; }
     th, td { border: 1px solid #ddd; padding: .35rem .6rem; text-align: left;
              vertical-align: top; word-break: break-word; }
+    .findings-table td:first-child { white-space: nowrap; }
     th { background: #f4f4f4; }
     .badge { padding: .1rem .5rem; border-radius: .6rem; font-size: .85em; }
     .ok { background: #d6f5d6; }
@@ -20,8 +25,8 @@
     .not_found { background: #eee; }
     .inconclusive { background: #fff0c2; }
     .muted { color: #666; }
-    iframe { width: 100%; height: 680px; border: 1px solid #ddd; border-radius: .5rem; }
-    img { max-width: 100%; }
+    details { margin: .5rem 0 1rem; }
+    summary { cursor: pointer; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -41,14 +46,14 @@
   {% endif %}
 
   <h2>Objetivo</h2>
-  <table>
+  <div class="table-wrap"><table>
     {% for key, value in target.items() %}
     <tr><th>{{ key }}</th><td>{{ value }}</td></tr>
     {% endfor %}
-  </table>
+  </table></div>
 
   <h2>Fuentes</h2>
-  <table>
+  <div class="table-wrap"><table>
     <tr><th>Módulo</th><th>Estado</th><th>Hallazgos</th><th>Duración</th><th>Detalle</th></tr>
     {% for r in report.results %}
     <tr>
@@ -59,11 +64,15 @@
       <td>{{ r.error or "" }}</td>
     </tr>
     {% endfor %}
-  </table>
+  </table></div>
 
   {% for r in report.results if r.source_checks %}
   <h3>Comprobaciones de {{ r.name }}</h3>
-  <table>
+  {% if r.source_checks | length > 100 %}
+  <details>
+    <summary>Mostrar las {{ r.source_checks | length }} comprobaciones</summary>
+  {% endif %}
+  <div class="table-wrap"><table>
     <tr><th>Fuente</th><th>Resultado</th><th>Detalle</th><th>Consultado</th></tr>
     {% for check in r.source_checks %}
     <tr>
@@ -73,14 +82,21 @@
       <td>{{ check.retrieved_at.isoformat(timespec="seconds") }}</td>
     </tr>
     {% endfor %}
-  </table>
+  </table></div>
+  {% if r.source_checks | length > 100 %}
+  </details>
+  {% endif %}
   {% endfor %}
 
   <h2>Hallazgos</h2>
   {% for r in report.results if r.findings %}
   <h3>{{ r.name }}</h3>
   <p class="muted">Hallazgos = observaciones de la fuente; no demuestran por sí solos la identidad ni la titularidad.</p>
-  <table>
+  {% if r.findings | length > 100 %}
+  <details>
+    <summary>Mostrar los {{ r.findings | length }} hallazgos</summary>
+  {% endif %}
+  <div class="table-wrap"><table class="findings-table">
     <tr><th>Tipo</th><th>Valor</th><th>Detalle</th><th>Fuente</th><th>Referencia</th><th>Consultado (UTC)</th><th>Confianza (heurística)</th></tr>
     {% for f in r.findings %}
     <tr>
@@ -99,7 +115,10 @@
       <td>{{ "%.2f" | format(f.confidence) }}</td>
     </tr>
     {% endfor %}
-  </table>
+  </table></div>
+  {% if r.findings | length > 100 %}
+  </details>
+  {% endif %}
   {% else %}
   <p class="muted">Sin hallazgos.</p>
   {% endfor %}
@@ -109,7 +128,7 @@
   <p>El informe contiene {{ report.coverage_summary.included }} de
     {{ report.coverage_summary.total }} comprobaciones tras aplicar los filtros.
     Los siguientes totales corresponden a la búsqueda completa.</p>
-  <table>
+  <div class="table-wrap"><table>
     <tr><th>Encontrado</th><th>No encontrado</th><th>Inconcluso</th><th>Error</th></tr>
     <tr>
       <td>{{ report.coverage_summary.found }}</td>
@@ -117,14 +136,18 @@
       <td>{{ report.coverage_summary.inconclusive }}</td>
       <td>{{ report.coverage_summary.error }}</td>
     </tr>
-  </table>
+  </table></div>
   <p class="muted">Filtros: estados {{ report.filter_summary.statuses }};
     búsqueda "{{ report.filter_summary.search or 'sin filtro de texto' }}".</p>
   {% endif %}
 
   <h2>Relaciones (hipótesis; verificar con evidencia independiente)</h2>
   {% if report.relations %}
-  <table>
+  {% if report.relations | length > 100 %}
+  <details>
+    <summary>Mostrar las {{ report.relations | length }} relaciones</summary>
+  {% endif %}
+  <div class="table-wrap"><table>
     <tr><th>Relación</th><th>Etiqueta</th><th>Evidencia</th><th>Confianza (heurística)</th></tr>
     {% for rel in report.relations %}
     <tr>
@@ -134,21 +157,12 @@
       <td>{{ "%.2f" | format(rel.confidence) }}</td>
     </tr>
     {% endfor %}
-  </table>
+  </table></div>
+  {% if report.relations | length > 100 %}
+  </details>
+  {% endif %}
   {% else %}
   <p class="muted">Sin relaciones.</p>
-  {% endif %}
-
-  {% if has_graph %}
-  <h2>Grafo interactivo</h2>
-  <p class="muted">Arrastra para explorar; haz clic en nodos y relaciones para ver evidencia.
-    Las conexiones no prueban que dos hallazgos pertenezcan a la misma persona.
-    <a href="graph.html">Abrir grafo a pantalla completa</a>.</p>
-  <iframe src="graph.html" title="Grafo interactivo de relaciones OSINT"></iframe>
-  {% endif %}
-  {% if has_graph_image %}
-  <h3>Vista estática</h3>
-  <img src="graph.png" alt="Grafo estático de relaciones">
   {% endif %}
 
   <h2>Limitaciones</h2>

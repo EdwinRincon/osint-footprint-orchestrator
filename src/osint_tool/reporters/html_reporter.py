@@ -1,4 +1,4 @@
-"""Informe HTML legible, autocontenido (sin recursos externos)."""
+"""Informe HTML legible con sus recursos interactivos locales."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ _env = Environment(
 
 
 class HtmlReporter:
-    """Escribe `report.html`. Muestra el grafo si `graph.png` ya existe en la carpeta."""
+    """Escribe el informe HTML sin incluir la visualización interactiva del grafo."""
 
     name = "html"
 
@@ -31,8 +31,6 @@ class HtmlReporter:
             target=report.target.to_dict(),
             notice=LEGAL_NOTICE,
             created=report.created_at.isoformat(timespec="seconds"),
-            has_graph=(directory / "graph.html").is_file(),
-            has_graph_image=(directory / "graph.png").is_file(),
         )
         path = directory / "report.html"
         path.write_text(html, encoding="utf-8")

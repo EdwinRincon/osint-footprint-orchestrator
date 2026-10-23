@@ -16,10 +16,7 @@ FORMATS = ("json", "html", "all")
 
 
 def reporters_for(fmt: str) -> list[Reporter]:
-    """Reporters de un formato.
-
-    El grafo va antes que el HTML: este incluye la imagen si `graph.png` ya existe.
-    """
+    """Reporters de un formato. El HTML incluye el grafo si sus recursos están disponibles."""
     if fmt == "json":
         return [JsonReporter()]
     if fmt == "html":

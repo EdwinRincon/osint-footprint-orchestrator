@@ -65,8 +65,6 @@ SERVED_FILES = {
     "report.html",
     "report.json",
     "graph.html",
-    "graph.png",
-    "graph.dot",
     "graph.js",
     "cytoscape.min.js",
     "CYTOSCAPE-LICENSE.txt",
@@ -534,6 +532,19 @@ def create_app(output_dir: Path | None = None) -> Flask:
             {
                 "report_url": url_for(
                     "serve_report", run_id=directory.name, filename="report.html"
+                ),
+                "download_urls": {
+                    filename: url_for(
+                        "serve_report", run_id=directory.name, filename=filename
+                    )
+                    for filename in ("report.html", "report.json")
+                },
+                "graph_url": (
+                    url_for(
+                        "serve_report", run_id=directory.name, filename="graph.html"
+                    )
+                    if (directory / "graph.html").is_file()
+                    else None
                 ),
                 "files": [path.name for path in paths],
             }
