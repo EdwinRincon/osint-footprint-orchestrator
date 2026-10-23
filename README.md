@@ -2,27 +2,31 @@
 
 Herramienta educativa para consultar información pública a partir de un correo, nombre de usuario, dominio, teléfono internacional o nombre.
 
-## Instalación desde el código fuente
+## Instalación
 
-Requiere Python 3.10 o superior. Desde la carpeta del proyecto:
+```bash
+python -m venv .venv
 
-```powershell
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e .
+# Activar el entorno
+source .venv/bin/activate        # Linux/macOS
+source .venv/Scripts/activate    # Windows (Git Bash)
+.venv\Scripts\activate           # Windows (CMD)
+
+pip install -e ".[dev]"
 ```
 
 La instalación editable usa directamente el código fuente del proyecto. Para ver el grafo como imagen, instala también [Graphviz](https://graphviz.org/download/); sin él se conserva el archivo `graph.dot`.
 
 ## Uso en terminal
 
-Inicia el asistente interactivo:
+Inicia la interfaz interactiva de pantalla completa:
 
 ```powershell
 osint
 ```
 
-O ejecuta una consulta indicando el dato:
+Usa las flechas y Enter para navegar, espacio para marcar módulos y Escape para volver al menú.
+También puedes ejecutar una consulta directamente, lo que es útil para automatización:
 
 ```powershell
 osint --domain ejemplo.com

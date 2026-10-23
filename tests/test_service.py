@@ -159,6 +159,21 @@ def test_con_modulos_no_hay_avisos() -> None:
     assert run_investigation(TARGET, [OkModule()]).notes == []
 
 
+def test_progreso_se_notifica_al_terminar_cada_modulo() -> None:
+    progress: list[tuple[str, int, int]] = []
+
+    report = run_investigation(
+        TARGET,
+        [OkModule(), SkippedModule()],
+        on_progress=lambda result, completed, total: progress.append(
+            (result.name, completed, total)
+        ),
+    )
+
+    assert len(report.results) == 2
+    assert progress == [("ok", 1, 2), ("skipped", 2, 2)]
+
+
 def test_usa_el_registro_si_no_se_pasan_modulos(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(registry, "_REGISTRY", {})
     registry.register(OkModule)

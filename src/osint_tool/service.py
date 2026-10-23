@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 import requests
 
@@ -34,6 +34,8 @@ EXPECTED_ERRORS = (requests.RequestException, ExternalToolError, OSError, ValueE
 NO_MODULES_NOTE = (
     "Ningún módulo acepta los datos de entrada indicados: no se consultó ninguna fuente."
 )
+
+ProgressCallback = Callable[[ModuleResult, int, int], None]
 
 
 def _describe_failure(exc: Exception) -> str:
@@ -83,18 +85,30 @@ def _execute(module: Module, target: Target) -> ModuleResult:
     )
 
 
-def run_investigation(target: Target, modules: Sequence[Module] | None = None) -> Report:
+def run_investigation(
+    target: Target,
+    modules: Sequence[Module] | None = None,
+    on_progress: ProgressCallback | None = None,
+) -> Report:
     """Investiga un `Target` y devuelve el informe completo.
 
     Args:
         target: datos de entrada ya validados.
         modules: módulos a ejecutar. Si es None, todos los que aceptan algún
             dato del Target. La CLI pasa aquí la selección de `--modules`.
+        on_progress: callback opcional invocado al terminar cada módulo.
     """
     if modules is None:
         modules = applicable_modules(target)
 
-    results = [_execute(module, target) for module in modules]
+    results: list[ModuleResult] = []
+    total = len(modules)
+    for completed, module in enumerate(modules, start=1):
+        result = _execute(module, target)
+        results.append(result)
+        if on_progress is not None:
+            on_progress(result, completed, total)
+
     findings = [finding for result in results for finding in result.findings]
     report = Report(target=target, results=results, relations=correlate(target, findings))
     if not results:
