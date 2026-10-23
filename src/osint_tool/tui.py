@@ -209,6 +209,7 @@ class RunScreen(FlowScreen):
         yield Header()
         yield Label(f"Consultando {len(self._modules)} módulo(s)…")
         yield ProgressBar(total=len(self._modules), show_eta=False)
+        yield Static("Preparando fuentes…", id="module-progress")
         yield RichLog(markup=True)
         yield Button("Volver al menú", id="menu", disabled=True)
         yield Footer()
@@ -221,9 +222,15 @@ class RunScreen(FlowScreen):
         def notify_progress(result: ModuleResult, _completed: int, _total: int) -> None:
             self.app.call_from_thread(self._advance, result)
 
+        def notify_module_progress(name: str, completed: int, total: int) -> None:
+            self.app.call_from_thread(self._show_module_progress, name, completed, total)
+
         try:
             report = run_investigation(
-                self._target, self._modules, on_progress=notify_progress
+                self._target,
+                self._modules,
+                on_progress=notify_progress,
+                on_module_progress=notify_module_progress,
             )
             directory, paths = write_reports(
                 report, self._output_dir, self._output_format
@@ -242,6 +249,14 @@ class RunScreen(FlowScreen):
             f"[{color}]{result.status.value:<8}[/] {result.name:<12} "
             f"{len(result.findings)} hallazgos ({result.duration:.1f} s)"
         )
+
+    def _show_module_progress(self, name: str, completed: int, total: int) -> None:
+        if total:
+            self.query_one("#module-progress", Static).update(
+                f"{name}: {completed}/{total} sitios comprobados"
+            )
+        else:
+            self.query_one("#module-progress", Static).update(f"Consultando {name}…")
 
     def _show_error(self, message: str) -> None:
         self.query_one(RichLog).write(f"[bold red]{message}[/]")
@@ -270,7 +285,18 @@ class ResultScreen(FlowScreen):
                 border_style="cyan",
             )
         )
-        yield DataTable[Text | str]()
+        yield Label("Hallazgos")
+        if findings:
+            yield DataTable[Text | str](id="findings")
+        else:
+            yield Static("No se encontraron hallazgos.")
+        if self._report.relations:
+            yield Label("Relaciones (hipótesis; verificar con evidencia independiente)")
+            yield DataTable[Text | str](id="relations")
+        else:
+            yield Static("No se encontraron relaciones.")
+        yield Label("Resumen por módulo")
+        yield DataTable[Text | str](id="modules")
         yield Static(f"Informes: {self._directory}")
         for note in self._report.notes:
             yield Static(Text(f"Aviso: {note}", style="yellow"))
@@ -278,10 +304,40 @@ class ResultScreen(FlowScreen):
         yield Footer()
 
     def on_mount(self) -> None:
-        table = self.query_one(DataTable)
-        table.add_columns("Módulo", "Estado", "Hallazgos", "Duración", "Detalle")
+        if self._report.findings:
+            findings_table = self.query_one("#findings", DataTable)
+            findings_table.add_columns(
+                "Módulo", "Tipo", "Valor", "Fuente", "Detalle", "Confianza"
+            )
+            for result in self._report.results:
+                for finding in result.findings:
+                    findings_table.add_row(
+                        result.name,
+                        finding.type,
+                        finding.value,
+                        finding.source,
+                        finding.detail or "",
+                        f"{finding.confidence:.2f}",
+                    )
+
+        if self._report.relations:
+            relations_table = self.query_one("#relations", DataTable)
+            relations_table.add_columns(
+                "Origen", "Destino", "Relación", "Evidencia", "Confianza"
+            )
+            for relation in self._report.relations:
+                relations_table.add_row(
+                    relation.source,
+                    relation.target,
+                    relation.label,
+                    ", ".join(relation.evidence) or "No especificada",
+                    f"{relation.confidence:.2f}",
+                )
+
+        modules_table = self.query_one("#modules", DataTable)
+        modules_table.add_columns("Módulo", "Estado", "Hallazgos", "Duración", "Detalle")
         for result in self._report.results:
-            table.add_row(
+            modules_table.add_row(
                 result.name,
                 Text(result.status.value, style=STATUS_STYLES[result.status]),
                 str(len(result.findings)),

@@ -24,7 +24,12 @@ from osint_tool.models import (
     Status,
     Target,
 )
-from osint_tool.registry import Module, ModuleSkipped, applicable_modules
+from osint_tool.registry import (
+    Module,
+    ModuleSkipped,
+    ProgressAwareModule,
+    applicable_modules,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +41,7 @@ NO_MODULES_NOTE = (
 )
 
 ProgressCallback = Callable[[ModuleResult, int, int], None]
+ModuleProgressCallback = Callable[[str, int, int], None]
 
 
 def _describe_failure(exc: Exception) -> str:
@@ -89,6 +95,7 @@ def run_investigation(
     target: Target,
     modules: Sequence[Module] | None = None,
     on_progress: ProgressCallback | None = None,
+    on_module_progress: ModuleProgressCallback | None = None,
 ) -> Report:
     """Investiga un `Target` y devuelve el informe completo.
 
@@ -97,6 +104,7 @@ def run_investigation(
         modules: módulos a ejecutar. Si es None, todos los que aceptan algún
             dato del Target. La CLI pasa aquí la selección de `--modules`.
         on_progress: callback opcional invocado al terminar cada módulo.
+        on_module_progress: callback opcional para el progreso interno de módulos.
     """
     if modules is None:
         modules = applicable_modules(target)
@@ -104,7 +112,25 @@ def run_investigation(
     results: list[ModuleResult] = []
     total = len(modules)
     for completed, module in enumerate(modules, start=1):
-        result = _execute(module, target)
+        if on_module_progress is not None:
+            on_module_progress(module.name, 0, 0)
+            if isinstance(module, ProgressAwareModule):
+                progress_callback = on_module_progress
+
+                def report_module_progress(
+                    current: int,
+                    maximum: int,
+                    callback: ModuleProgressCallback = progress_callback,
+                    module_name: str = module.name,
+                ) -> None:
+                    callback(module_name, current, maximum)
+
+                module.set_progress_callback(report_module_progress)
+        try:
+            result = _execute(module, target)
+        finally:
+            if isinstance(module, ProgressAwareModule):
+                module.set_progress_callback(None)
         results.append(result)
         if on_progress is not None:
             on_progress(result, completed, total)

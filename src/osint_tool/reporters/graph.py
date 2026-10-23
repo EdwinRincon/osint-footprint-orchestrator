@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import shutil
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from urllib.parse import urlsplit
+
+from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from osint_tool.cli_runner import CliResult, run_cli
 from osint_tool.correlator import node_id
@@ -27,6 +32,8 @@ KIND_STYLE: dict[str, tuple[str, str]] = {
     "breach": ("octagon", "#ffb3b3"),
 }
 DEFAULT_STYLE = ("box", "#eeeeee")
+TEMPLATES_DIR = Path(__file__).parent / "templates"
+WEB_STATIC_DIR = Path(__file__).parent.parent / "web" / "static"
 
 
 def _esc(text: str) -> str:
@@ -83,18 +90,93 @@ class GraphReporter:
     def write(self, report: Report, directory: Path) -> list[Path]:
         dot_path = directory / "graph.dot"
         dot_path.write_text(build_dot(report), encoding="utf-8")
+        paths = [dot_path]
+        if report.relations:
+            graph_path = directory / "graph.html"
+            environment = Environment(
+                loader=FileSystemLoader(TEMPLATES_DIR),
+                autoescape=True,
+                undefined=StrictUndefined,
+            )
+            graph_path.write_text(
+                environment.get_template("graph.html").render(
+                    graph_data=json.dumps(
+                        _cytoscape_elements(report), ensure_ascii=False, separators=(",", ":")
+                    )
+                ),
+                encoding="utf-8",
+            )
+            paths.extend(
+                (
+                    graph_path,
+                    directory / "graph.js",
+                    directory / "cytoscape.min.js",
+                    directory / "CYTOSCAPE-LICENSE.txt",
+                )
+            )
+            shutil.copyfile(WEB_STATIC_DIR / "graph.js", paths[-3])
+            shutil.copyfile(WEB_STATIC_DIR / "vendor" / "cytoscape.min.js", paths[-2])
+            shutil.copyfile(WEB_STATIC_DIR / "vendor" / "CYTOSCAPE-LICENSE.txt", paths[-1])
+
         png_path = directory / "graph.png"
 
         try:
             result = self._runner(["dot", "-Tpng", str(dot_path), "-o", str(png_path)])
         except ToolNotFoundError:
             logger.warning("Graphviz no está instalado: solo se genera graph.dot")
-            return [dot_path]
+            return paths
         except ExternalToolError as exc:
             logger.warning("Graphviz falló: %s", exc)
-            return [dot_path]
+            return paths
 
         if result.returncode != 0:
             logger.warning("Graphviz terminó con código %s", result.returncode)
-            return [dot_path]
-        return [dot_path, png_path]
+            return paths
+        paths.append(png_path)
+        return paths
+
+
+def _cytoscape_elements(report: Report) -> list[dict[str, object]]:
+    target_nodes = {
+        node_id(kind, value) for kind, value in report.target.to_dict().items()
+    }
+    nodes: dict[str, dict[str, object]] = {}
+    edges: list[dict[str, object]] = []
+    for relation_index, relation in enumerate(report.relations):
+        for identifier in (relation.source, relation.target):
+            if identifier in nodes:
+                continue
+            kind, _, value = identifier.partition(":")
+            label_value = _display_value(kind, value)
+            nodes[identifier] = {
+                "data": {
+                    "id": identifier,
+                    "kind": kind,
+                    "value": value,
+                    "label": f"{kind.upper()}\n{label_value}",
+                    "is_target": identifier in target_nodes,
+                }
+            }
+            if identifier in target_nodes:
+                nodes[identifier]["classes"] = "target"
+        edges.append(
+            {
+                "data": {
+                    "id": f"relation-{relation_index}",
+                    "source": relation.source,
+                    "target": relation.target,
+                    "label": relation.label,
+                    "confidence": relation.confidence,
+                    "evidence": list(relation.evidence),
+                }
+            }
+        )
+    return [*nodes.values(), *edges]
+
+
+def _display_value(kind: str, value: str) -> str:
+    if kind == "profile":
+        parsed = urlsplit(value)
+        value = f"{parsed.hostname or value}{parsed.path.rstrip('/')}"
+    max_length = 26
+    return value if len(value) <= max_length else value[: max_length - 1] + "…"

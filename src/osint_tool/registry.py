@@ -6,9 +6,9 @@ ninguna lista central (principio abierto/cerrado).
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import fields
-from typing import Protocol, TypeVar
+from typing import Protocol, TypeVar, runtime_checkable
 
 from osint_tool.models import Finding, ModuleOutput, Target
 
@@ -34,6 +34,15 @@ class Module(Protocol):
     def run(self, target: Target) -> list[Finding] | ModuleOutput:
         """Consulta la fuente y devuelve hallazgos, opcionalmente con cobertura por fuente."""
         ...
+
+
+@runtime_checkable
+class ProgressAwareModule(Protocol):
+    """Optional protocol for modules that can report progress while running."""
+
+    def set_progress_callback(
+        self, callback: Callable[[int, int], None] | None
+    ) -> None: ...
 
 
 M = TypeVar("M", bound=Module)
@@ -67,6 +76,20 @@ def web_optional_modules() -> list[tuple[str, str]]:
         (name, getattr(module, "web_label", name.replace("_", " ").title()))
         for name, module in _REGISTRY.items()
         if getattr(module, "web_opt_in", False)
+    ]
+
+
+def web_module_catalog() -> list[tuple[str, str, str, frozenset[str], bool]]:
+    """Presentación de fuentes web y datos de entrada que las habilitan."""
+    return [
+        (
+            name,
+            getattr(module, "web_label", name.replace("_", " ").title()),
+            getattr(module, "web_description", ""),
+            module.accepts,
+            getattr(module, "web_opt_in", False),
+        )
+        for name, module in _REGISTRY.items()
     ]
 
 

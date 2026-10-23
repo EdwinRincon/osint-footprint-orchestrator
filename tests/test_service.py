@@ -174,6 +174,32 @@ def test_progreso_se_notifica_al_terminar_cada_modulo() -> None:
     assert progress == [("ok", 1, 2), ("skipped", 2, 2)]
 
 
+def test_progreso_interno_de_modulos_se_propaga() -> None:
+    class ProgressModule:
+        name = "progress"
+        accepts = frozenset({"domain"})
+
+        def set_progress_callback(self, callback):
+            self.callback = callback
+
+        def run(self, target):
+            self.callback(1, 3)
+            self.callback(3, 3)
+            return []
+
+    progress: list[tuple[str, int, int]] = []
+    result = run_investigation(
+        TARGET,
+        [ProgressModule()],
+        on_module_progress=lambda name, current, total: progress.append(
+            (name, current, total)
+        ),
+    )
+
+    assert result.results[0].status is Status.OK
+    assert progress == [("progress", 0, 0), ("progress", 1, 3), ("progress", 3, 3)]
+
+
 def test_usa_el_registro_si_no_se_pasan_modulos(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(registry, "_REGISTRY", {})
     registry.register(OkModule)

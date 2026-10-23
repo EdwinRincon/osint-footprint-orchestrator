@@ -13,7 +13,13 @@ import whois
 from whois.exceptions import WhoisError
 
 from osint_tool.config import load_settings
-from osint_tool.models import Finding, Target
+from osint_tool.models import (
+    Finding,
+    ModuleOutput,
+    SourceCheck,
+    SourceCheckStatus,
+    Target,
+)
 from osint_tool.registry import register
 from osint_tool.validation import ValidationError, validate_email
 
@@ -64,6 +70,8 @@ class DomainModule:
 
     name = "domain"
     accepts = frozenset({"domain"})
+    web_label = "DNS y WHOIS"
+    web_description = "Consulta registros DNS (A, AAAA, MX, NS, TXT) y datos públicos WHOIS."
 
     def __init__(
         self,
@@ -77,25 +85,41 @@ class DomainModule:
         self._resolver = resolver
         self._whois = whois_lookup or _default_whois
 
-    def run(self, target: Target) -> list[Finding]:
+    def run(self, target: Target) -> ModuleOutput:
         if not target.domain:
-            return []
-        return self._dns_findings(target.domain) + self._whois_findings(target.domain)
+            return ModuleOutput()
+        dns_findings, dns_checks = self._dns_findings(target.domain)
+        whois_findings, whois_check = self._whois_findings(target.domain)
+        return ModuleOutput(
+            findings=dns_findings + whois_findings,
+            source_checks=[*dns_checks, whois_check],
+        )
 
-    def _dns_findings(self, domain: str) -> list[Finding]:
+    def _dns_findings(self, domain: str) -> tuple[list[Finding], list[SourceCheck]]:
         findings: list[Finding] = []
+        checks: list[SourceCheck] = []
         for rtype in RECORD_TYPES:
             try:
                 answers = self._resolver.resolve(domain, rtype)
             except dns.resolver.NoAnswer:
-                continue  # el dominio no tiene ese tipo de registro: normal
+                checks.append(
+                    SourceCheck(f"DNS {rtype}", SourceCheckStatus.NOT_FOUND, "Sin registros.")
+                )
+                continue
             except dns.resolver.NXDOMAIN:
                 logger.info("El dominio %s no existe en DNS", domain)
+                checks.extend(
+                    SourceCheck(f"DNS {record_type}", SourceCheckStatus.NOT_FOUND, "NXDOMAIN.")
+                    for record_type in RECORD_TYPES[len(checks) :]
+                )
                 break
             except dns.exception.DNSException as exc:
                 logger.warning("DNS %s fallo (%s): %s", rtype, domain, type(exc).__name__)
+                checks.append(
+                    SourceCheck(f"DNS {rtype}", SourceCheckStatus.ERROR, type(exc).__name__)
+                )
                 continue
-            findings.extend(
+            records = [
                 Finding(
                     entity_type="domain",
                     type="dns_record",
@@ -104,15 +128,25 @@ class DomainModule:
                     raw={"record_type": rtype},
                 )
                 for rdata in answers
+            ]
+            findings.extend(records)
+            checks.append(
+                SourceCheck(
+                    f"DNS {rtype}",
+                    SourceCheckStatus.FOUND if records else SourceCheckStatus.NOT_FOUND,
+                    f"{len(records)} registro(s)." if records else "Sin registros.",
+                )
             )
-        return findings
+        return findings, checks
 
-    def _whois_findings(self, domain: str) -> list[Finding]:
+    def _whois_findings(
+        self, domain: str
+    ) -> tuple[list[Finding], SourceCheck]:
         try:
             data = self._whois(domain)
         except (WhoisError, OSError) as exc:
             logger.warning("WHOIS fallo (%s): %s", domain, type(exc).__name__)
-            return []
+            return [], SourceCheck("WHOIS", SourceCheckStatus.ERROR, type(exc).__name__)
 
         fields = {
             "whois_registrar": "registrar",
@@ -134,4 +168,6 @@ class DomainModule:
             except ValidationError:
                 continue  # texto como "Select Request Email Form"
             findings.append(_whois_finding("email", "whois_contact", email, 0.6))
-        return findings
+        status = SourceCheckStatus.FOUND if findings else SourceCheckStatus.NOT_FOUND
+        detail = f"{len(findings)} dato(s)." if findings else "Sin datos públicos."
+        return findings, SourceCheck("WHOIS", status, detail)

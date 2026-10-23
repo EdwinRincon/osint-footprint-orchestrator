@@ -113,6 +113,18 @@ def test_perfil_encontrado() -> None:
     ]
 
 
+def test_informa_progreso_a_medida_que_terminan_los_sitios() -> None:
+    module, _ = _module(
+        {"https://uno.test/ana_perez": 200, "https://dos.test/ana_perez": 404}
+    )
+    progress: list[tuple[int, int]] = []
+    module.set_progress_callback(lambda current, total: progress.append((current, total)))
+
+    module.run(TARGET)
+
+    assert sorted(progress) == [(1, 2), (2, 2)]
+
+
 def test_respuestas_no_concluyentes_no_son_hallazgos() -> None:
     module, _ = _module({"https://uno.test/ana_perez": 403, "https://dos.test/ana_perez": 429})
 

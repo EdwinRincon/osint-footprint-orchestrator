@@ -148,6 +148,7 @@ class Relation:
     target: str
     label: str
     confidence: float = 0.5
+    evidence: tuple[str, ...] = ()
 
 
 @dataclass
@@ -159,6 +160,8 @@ class Report:
     relations: list[Relation] = field(default_factory=list)
     created_at: datetime = field(default_factory=_utcnow)
     notes: list[str] = field(default_factory=list)  # avisos para el lector del informe
+    coverage_summary: dict[str, int] = field(default_factory=dict)
+    filter_summary: dict[str, str] = field(default_factory=dict)
 
     @property
     def findings(self) -> list[Finding]:
@@ -174,4 +177,8 @@ class Report:
             "relations": [asdict(r) for r in self.relations],
             "notes": self.notes,
         }
+        if self.coverage_summary:
+            data["coverage_summary"] = self.coverage_summary
+        if self.filter_summary:
+            data["filter_summary"] = self.filter_summary
         return {key: _to_jsonable(value) for key, value in data.items()}

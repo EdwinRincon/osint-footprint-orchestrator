@@ -1,22 +1,52 @@
 import json
 import re
+import threading
+import time
 from pathlib import Path
 
 import pytest
 from flask.testing import FlaskClient
 
-from osint_tool.models import Finding, ModuleResult, Report, Status
+from osint_tool.models import (
+    Finding,
+    ModuleResult,
+    Relation,
+    Report,
+    SourceCheck,
+    SourceCheckStatus,
+    Status,
+    Target,
+)
 from osint_tool.web import app as webapp
 
-RUN_URL = re.compile(r"^/reports/\d{8}T\d{6}-[0-9a-f]{6}/report\.html$")
+JOB_URL = re.compile(r"^/jobs/[A-Za-z0-9_-]+$")
 NO_MODULES_TEXT = "Ningún módulo acepta"
 
 
-def _fake_investigation(target, modules=None):  # type: ignore[no-untyped-def]
+def _fake_investigation(
+    target, modules=None, on_progress=None, on_module_progress=None
+):  # type: ignore[no-untyped-def]
     finding = Finding(
         entity_type="domain", type="subdomain", value="a.ejemplo.com", source="Fake"
     )
-    return Report(target=target, results=[ModuleResult("domain", Status.OK, [finding])])
+    results = [ModuleResult("domain", Status.OK, [finding])]
+    if on_module_progress:
+        on_module_progress("domain", 0, 0)
+    if on_progress:
+        on_progress(results[0], 1, 1)
+    return Report(target=target, results=results)
+
+
+def _wait_for_completion(client: FlaskClient, job_url: str) -> dict:
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        response = client.get(f"{job_url}/status")
+        assert response.status_code == 200
+        status = response.get_json()
+        if status["status"] in {"complete", "failed"}:
+            return status
+        time.sleep(0.01)
+    raise AssertionError("La investigación en segundo plano no terminó a tiempo")
 
 
 @pytest.fixture
@@ -42,89 +72,306 @@ def test_formulario_inicial(client: FlaskClient) -> None:
     assert b"<form" in response.data
     assert b"Uso responsable" in response.data
     assert b"theHarvester" in response.data
-    assert b'type="checkbox"' in response.data
+    assert b"DNS y WHOIS" in response.data
+    assert b"Perfiles de username" in response.data
+    assert b"Ver" in response.data
 
 
-def test_busqueda_valida_redirige_al_informe(client: FlaskClient, salida: Path) -> None:
+def test_busqueda_es_asincrona_y_no_genera_informe_automaticamente(
+    client: FlaskClient, salida: Path
+) -> None:
     response = client.post("/", data={"domain": "ejemplo.com"})
     assert response.status_code == 303
-    location = response.headers["Location"]
-    assert RUN_URL.match(location)
+    job_url = response.headers["Location"]
+    assert JOB_URL.match(job_url)
+    assert b"Progreso y resultados" in client.get(job_url).data
+    assert _wait_for_completion(client, job_url)["status"] == "complete"
 
-    report = client.get(location)
-    assert report.status_code == 200
-    assert b"Informe OSINT" in report.data
+    data = client.get(f"{job_url}/data")
+    assert data.status_code == 200
+    assert data.get_json()["findings"] == 1
+    assert data.get_json()["finding_items"][0]["value"] == "a.ejemplo.com"
+    assert data.get_json()["relation_items"] == []
+    assert list(salida.glob("*/report.html")) == []
+
+    generated = client.post(
+        f"{job_url}/report",
+        data={"statuses": ["found", "not_found", "inconclusive", "error"]},
+    )
+    assert generated.status_code == 200
+    report_url = generated.get_json()["report_url"]
+    assert report_url.startswith("/reports/")
+    assert b"Informe OSINT" in client.get(report_url).data
     assert len(list(salida.glob("*/report.html"))) == 1
-    assert client.get(location.replace("report.html", "report.json")).status_code == 200
 
 
-def test_busqueda_solo_por_nombre_avisa_de_que_no_se_consulto_ninguna_fuente(
+def test_progreso_de_modulos_se_exhibe_durante_la_busqueda(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    started = threading.Event()
+    finish = threading.Event()
+
+    def slow_investigation(target, modules, on_progress, on_module_progress):
+        on_module_progress("usernames", 0, 10)
+        on_module_progress("usernames", 3, 10)
+        started.set()
+        assert finish.wait(timeout=2)
+        result = ModuleResult("usernames", Status.OK)
+        on_progress(result, 1, 1)
+        return Report(target=target, results=[result])
+
+    monkeypatch.setattr(webapp, "run_investigation", slow_investigation)
+    response = client.post("/", data={"username": "demo_user"})
+    job_url = response.headers["Location"]
+    assert started.wait(timeout=1)
+    status = client.get(f"{job_url}/status").get_json()
+    assert status["current_module"] == "usernames"
+    assert (status["current_completed"], status["current_total"]) == (3, 10)
+
+    finish.set()
+    assert _wait_for_completion(client, job_url)["status"] == "complete"
+
+
+def test_busqueda_por_nombre_avisa_que_no_se_consulto_ninguna_fuente(
     real_client: FlaskClient,
 ) -> None:
     response = real_client.post("/", data={"name": "Ana Pérez"})
     assert response.status_code == 303
-
-    html = real_client.get(response.headers["Location"]).data.decode()
-
+    job_url = response.headers["Location"]
+    assert _wait_for_completion(real_client, job_url)["status"] == "complete"
+    location = real_client.post(f"{job_url}/report", data={"statuses": []}).get_json()[
+        "report_url"
+    ]
+    html = real_client.get(location).data.decode()
     assert NO_MODULES_TEXT in html
 
 
-def test_el_aviso_de_sin_modulos_tambien_esta_en_el_json(
-    real_client: FlaskClient,
+def test_informe_filtra_comprobaciones_y_conserva_cobertura_completa(
+    client: FlaskClient, salida: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    location = real_client.post("/", data={"name": "Ana Pérez"}).headers["Location"]
+    first = Finding(
+        entity_type="username",
+        type="profile",
+        value="https://site-a.test/demo",
+        source="Site A",
+        source_url="https://site-a.test/demo",
+        confidence=0.5,
+    )
+    second = Finding(
+        entity_type="username",
+        type="profile",
+        value="https://site-b.test/demo",
+        source="Site B",
+        source_url="https://site-b.test/demo",
+        confidence=0.5,
+    )
+    result = ModuleResult(
+        "usernames",
+        Status.OK,
+        [first, second],
+        source_checks=[
+            SourceCheck("Site A", SourceCheckStatus.FOUND, "HTTP 200"),
+            SourceCheck("Site B", SourceCheckStatus.NOT_FOUND, "HTTP 404"),
+            SourceCheck("Site C", SourceCheckStatus.INCONCLUSIVE, "HTTP 429"),
+        ],
+    )
+    source_reports: list[Report] = []
 
-    data = json.loads(real_client.get(location.replace("report.html", "report.json")).data)
+    def fake_investigation(target, modules, on_progress, on_module_progress):
+        report = Report(target=target, results=[result])
+        source_reports.append(report)
+        return report
 
-    assert len(data["notes"]) == 1
-    assert NO_MODULES_TEXT in data["notes"][0]
+    monkeypatch.setattr(webapp, "run_investigation", fake_investigation)
+
+    job_url = client.post("/", data={"username": "demo_user"}).headers["Location"]
+    assert _wait_for_completion(client, job_url)["status"] == "complete"
+    response = client.get(f"{job_url}/data")
+    checks = response.get_json()["source_checks"]
+    assert len(checks) == 3
+    assert checks[0]["profile_url"] == "https://site-a.test/demo"
+    assert list(salida.iterdir()) == []
+
+    generated = client.post(
+        f"{job_url}/report", data={"statuses": ["found"], "query": "site a"}
+    )
+    assert generated.status_code == 200
+    report_url = generated.get_json()["report_url"]
+    report_json = json.loads(
+        client.get(report_url.replace("report.html", "report.json")).data
+    )
+    usernames = report_json["results"][0]
+    assert [item["source"] for item in usernames["findings"]] == ["Site A"]
+    assert [item["source"] for item in usernames["source_checks"]] == ["Site A"]
+    assert report_json["coverage_summary"] == {
+        "total": 3,
+        "included": 1,
+        "found": 1,
+        "not_found": 1,
+        "inconclusive": 1,
+        "error": 0,
+    }
+    assert report_json["filter_summary"] == {"statuses": "found", "search": "site a"}
+    assert len(report_json["notes"]) == 1
+
+    generated_again = client.post(
+        f"{job_url}/report", data={"statuses": ["found"], "query": "site a"}
+    )
+    report_again = json.loads(
+        client.get(
+            generated_again.get_json()["report_url"].replace("report.html", "report.json")
+        ).data
+    )
+    assert report_again["notes"] == report_json["notes"]
+    assert source_reports[0].notes == []
 
 
-def test_herramientas_opcionales_no_se_ejecutan_por_defecto(
+def test_informe_filtra_por_modulo_y_recalcula_relaciones(
     client: FlaskClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    executed: list[str] = []
+    username_finding = Finding(
+        entity_type="username",
+        type="profile",
+        value="https://site.test/demo",
+        source="Site",
+        confidence=0.5,
+    )
+    phone_finding = Finding(
+        entity_type="phone",
+        type="phone_region",
+        value="ES",
+        source="Phone",
+    )
+    report = Report(
+        target=Target(username="demo", phone="+34600000000"),
+        results=[
+            ModuleResult(
+                "usernames",
+                Status.OK,
+                [username_finding],
+                source_checks=[SourceCheck("Site", SourceCheckStatus.FOUND)],
+            ),
+            ModuleResult("phone", Status.OK, [phone_finding]),
+        ],
+        relations=[
+            Relation("username:demo", "profile:https://site.test/demo", "perfil", 0.5),
+            Relation("phone:+34600000000", "region:ES", "región", 1.0),
+        ],
+    )
+    monkeypatch.setattr(webapp, "run_investigation", lambda *args, **kwargs: report)
 
-    def record_modules(target, modules=None):  # type: ignore[no-untyped-def]
-        executed.extend(module.name for module in modules or [])
-        return _fake_investigation(target, modules)
+    job_url = client.post("/", data={"username": "demo", "phone": "+34600000000"}).headers[
+        "Location"
+    ]
+    assert _wait_for_completion(client, job_url)["status"] == "complete"
 
-    monkeypatch.setattr(webapp, "run_investigation", record_modules)
-    response = client.post("/", data={"domain": "ejemplo.com"})
+    data = client.get(f"{job_url}/data").get_json()
+    assert [finding["module"] for finding in data["finding_items"]] == ["usernames", "phone"]
+    assert len(data["relation_items"]) == 2
 
-    assert response.status_code == 303
-    assert "domain" in executed
-    assert "harvester" not in executed
+    generated = client.post(
+        f"{job_url}/report",
+        data={"statuses": ["found"], "module": "phone"},
+    )
+    assert generated.status_code == 200
+    report_url = generated.get_json()["report_url"]
+    report_json = json.loads(
+        client.get(report_url.replace("report.html", "report.json")).data
+    )
+    assert [result["name"] for result in report_json["results"]] == ["phone"]
+    assert [relation["source"] for relation in report_json["relations"]] == [
+        "phone:+34600000000"
+    ]
+    assert report_json["filter_summary"]["module"] == "phone"
 
 
-def test_herramienta_opcional_se_ejecuta_si_se_selecciona(
+def test_dns_y_whois_aparecen_en_cobertura_y_se_filtran(
     client: FlaskClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    executed: list[str] = []
+    dns_finding = Finding(
+        entity_type="domain",
+        type="dns_record",
+        value="A 192.0.2.10",
+        source="DNS",
+        raw={"record_type": "A"},
+    )
+    whois_finding = Finding(
+        entity_type="domain",
+        type="whois_registrar",
+        value="Example Registrar",
+        source="WHOIS",
+    )
+    result = ModuleResult(
+        "domain",
+        Status.OK,
+        [dns_finding, whois_finding],
+        source_checks=[
+            SourceCheck("DNS A", SourceCheckStatus.FOUND),
+            SourceCheck("DNS AAAA", SourceCheckStatus.NOT_FOUND),
+            SourceCheck("WHOIS", SourceCheckStatus.ERROR, "Timeout"),
+        ],
+    )
+    report = Report(target=Target(domain="example.test"), results=[result])
+    monkeypatch.setattr(webapp, "run_investigation", lambda *args, **kwargs: report)
 
-    def record_modules(target, modules=None):  # type: ignore[no-untyped-def]
-        executed.extend(module.name for module in modules or [])
-        return _fake_investigation(target, modules)
+    job_url = client.post("/", data={"domain": "example.test"}).headers["Location"]
+    assert _wait_for_completion(client, job_url)["status"] == "complete"
+    data = client.get(f"{job_url}/data").get_json()
+    assert [check["source"] for check in data["source_checks"]] == [
+        "DNS A",
+        "DNS AAAA",
+        "WHOIS",
+    ]
+    assert [finding["source"] for finding in data["finding_items"]] == ["DNS", "WHOIS"]
 
-    monkeypatch.setattr(webapp, "run_investigation", record_modules)
-    response = client.post("/", data={"domain": "ejemplo.com", "modules": "harvester"})
+    generated = client.post(
+        f"{job_url}/report",
+        data={"statuses": ["found"], "module": "domain", "query": "DNS"},
+    )
+    assert generated.status_code == 200
+    report_json = json.loads(
+        client.get(
+            generated.get_json()["report_url"].replace("report.html", "report.json")
+        ).data
+    )
+    domain = report_json["results"][0]
+    assert [finding["value"] for finding in domain["findings"]] == ["A 192.0.2.10"]
+    assert [check["source"] for check in domain["source_checks"]] == ["DNS A"]
+    assert report_json["coverage_summary"] == {
+        "total": 3,
+        "included": 1,
+        "found": 1,
+        "not_found": 1,
+        "inconclusive": 0,
+        "error": 1,
+    }
 
-    assert response.status_code == 303
-    assert "domain" in executed
-    assert "harvester" in executed
+
+def test_error_de_busqueda_en_segundo_plano_se_muestra(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def failed(*args, **kwargs):
+        raise RuntimeError("dato privado")
+
+    monkeypatch.setattr(webapp, "run_investigation", failed)
+    job_url = client.post("/", data={"domain": "ejemplo.com"}).headers["Location"]
+    status = _wait_for_completion(client, job_url)
+    assert status["status"] == "failed"
+    assert "dato privado" not in status["error"]
 
 
 def test_se_rechazan_modulos_opcionales_desconocidos(
     client: FlaskClient, salida: Path
 ) -> None:
     response = client.post("/", data={"domain": "ejemplo.com", "modules": "unknown"})
-
     assert response.status_code == 400
     assert b"selecci\xc3\xb3n de herramientas" in response.data.lower()
     assert list(salida.iterdir()) == []
 
 
-def test_dato_invalido_devuelve_400_y_no_escribe_nada(client: FlaskClient, salida: Path) -> None:
+def test_dato_invalido_devuelve_400_y_no_escribe_nada(
+    client: FlaskClient, salida: Path
+) -> None:
     response = client.post("/", data={"domain": "a..com"})
     assert response.status_code == 400
     assert "dominio no válido".encode() in response.data
@@ -137,14 +384,16 @@ def test_sin_datos_devuelve_400(client: FlaskClient) -> None:
     assert b"al menos un dato" in response.data
 
 
-def test_el_valor_enviado_se_escapa_en_el_formulario(client: FlaskClient) -> None:
+def test_valor_enviado_se_escapa_en_el_formulario(client: FlaskClient) -> None:
     response = client.post("/", data={"email": '"><script>alert(1)</script>'})
     assert response.status_code == 400
     assert b"<script>" not in response.data
     assert b"&lt;script&gt;" in response.data
 
 
-def test_solo_se_sirven_carpetas_y_ficheros_permitidos(client: FlaskClient, salida: Path) -> None:
+def test_solo_se_sirven_ficheros_de_informe_permitidos(
+    client: FlaskClient, salida: Path
+) -> None:
     run = salida / "20261013T184631-5d935f"
     run.mkdir()
     (run / "secreto.txt").write_text("no debe verse")
@@ -168,15 +417,17 @@ def test_origin_ajeno_en_post_se_rechaza(client: FlaskClient, salida: Path) -> N
 def test_cabeceras_de_seguridad(client: FlaskClient) -> None:
     headers = client.get("/").headers
     assert "default-src 'none'" in headers["Content-Security-Policy"]
+    assert "script-src 'self'" in headers["Content-Security-Policy"]
+    assert "frame-src 'self'" in headers["Content-Security-Policy"]
+    assert "frame-ancestors 'self'" in headers["Content-Security-Policy"]
     assert headers["X-Content-Type-Options"] == "nosniff"
     assert headers["Referrer-Policy"] == "same-origin"
     assert headers["Cache-Control"] == "no-store"
 
 
-def test_los_informes_no_se_guardan_en_la_cache_del_navegador(client: FlaskClient) -> None:
-    location = client.post("/", data={"domain": "ejemplo.com"}).headers["Location"]
-
-    assert client.get(location).headers["Cache-Control"] == "no-store"
+def test_informes_no_se_guardan_en_cache(client: FlaskClient) -> None:
+    job_url = client.post("/", data={"domain": "ejemplo.com"}).headers["Location"]
+    assert client.get(job_url).headers["Cache-Control"] == "no-store"
 
 
 def test_origin_propio_se_acepta(client: FlaskClient) -> None:

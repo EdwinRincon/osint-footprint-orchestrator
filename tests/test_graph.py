@@ -2,7 +2,7 @@ from pathlib import Path
 
 from osint_tool.cli_runner import CliResult, ToolNotFoundError
 from osint_tool.models import Relation, Report, Target
-from osint_tool.reporters.graph import GraphReporter, build_dot
+from osint_tool.reporters.graph import GraphReporter, _cytoscape_elements, build_dot
 
 
 def _report(*relations: Relation) -> Report:
@@ -65,3 +65,49 @@ def test_sin_graphviz_solo_se_escribe_el_dot(tmp_path: Path) -> None:
 def test_graphviz_con_error_solo_escribe_el_dot(tmp_path: Path) -> None:
     paths = GraphReporter(lambda args: CliResult(1, "", "error")).write(_report(), tmp_path)
     assert paths == [tmp_path / "graph.dot"]
+
+
+def test_write_genera_grafo_interactivo_local_con_evidencia(tmp_path: Path) -> None:
+    relation = Relation(
+        "username:demo_user",
+        "profile:https://example.test/demo_user",
+        "perfil observado en Example",
+        0.5,
+        ("WhatsMyName",),
+    )
+    paths = GraphReporter(lambda args: CliResult(1, "", "Graphviz no disponible")).write(
+        _report(relation), tmp_path
+    )
+
+    assert paths == [
+        tmp_path / "graph.dot",
+        tmp_path / "graph.html",
+        tmp_path / "graph.js",
+        tmp_path / "cytoscape.min.js",
+        tmp_path / "CYTOSCAPE-LICENSE.txt",
+    ]
+    graph_html = (tmp_path / "graph.html").read_text(encoding="utf-8")
+    assert 'src="cytoscape.min.js"' in graph_html
+    assert "WhatsMyName" in graph_html
+    assert (tmp_path / "cytoscape.min.js").stat().st_size > 100_000
+    assert "Permission is hereby granted" in (
+        tmp_path / "CYTOSCAPE-LICENSE.txt"
+    ).read_text(encoding="utf-8")
+
+
+def test_grafo_marca_solo_los_datos_de_entrada_como_objetivo() -> None:
+    relation = Relation(
+        "username:demo_user",
+        "profile:https://example.test/demo_user",
+        "perfil observado en Example",
+    )
+    report = Report(target=Target(username="demo_user"), relations=[relation])
+    elements = _cytoscape_elements(report)
+    nodes = {
+        element["data"]["id"]: element
+        for element in elements
+        if "source" not in element["data"]
+    }
+
+    assert nodes["username:demo_user"]["classes"] == "target"
+    assert "classes" not in nodes["profile:https://example.test/demo_user"]

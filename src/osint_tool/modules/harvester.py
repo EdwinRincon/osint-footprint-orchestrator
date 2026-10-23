@@ -128,6 +128,9 @@ class HarvesterModule:
     accepts = frozenset({"domain"})
     web_opt_in = True
     web_label = "theHarvester"
+    web_description = (
+        "Herramienta externa opcional para dominios; requiere instalación y fuentes configuradas."
+    )
 
     def __init__(
         self,

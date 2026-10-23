@@ -20,6 +20,7 @@
     .not_found { background: #eee; }
     .inconclusive { background: #fff0c2; }
     .muted { color: #666; }
+    iframe { width: 100%; height: 680px; border: 1px solid #ddd; border-radius: .5rem; }
     img { max-width: 100%; }
   </style>
 </head>
@@ -103,14 +104,33 @@
   <p class="muted">Sin hallazgos.</p>
   {% endfor %}
 
+  {% if report.coverage_summary %}
+  <h2>Cobertura completa de comprobaciones</h2>
+  <p>El informe contiene {{ report.coverage_summary.included }} de
+    {{ report.coverage_summary.total }} comprobaciones tras aplicar los filtros.
+    Los siguientes totales corresponden a la búsqueda completa.</p>
+  <table>
+    <tr><th>Encontrado</th><th>No encontrado</th><th>Inconcluso</th><th>Error</th></tr>
+    <tr>
+      <td>{{ report.coverage_summary.found }}</td>
+      <td>{{ report.coverage_summary.not_found }}</td>
+      <td>{{ report.coverage_summary.inconclusive }}</td>
+      <td>{{ report.coverage_summary.error }}</td>
+    </tr>
+  </table>
+  <p class="muted">Filtros: estados {{ report.filter_summary.statuses }};
+    búsqueda "{{ report.filter_summary.search or 'sin filtro de texto' }}".</p>
+  {% endif %}
+
   <h2>Relaciones (hipótesis; verificar con evidencia independiente)</h2>
   {% if report.relations %}
   <table>
-    <tr><th>Relación</th><th>Etiqueta</th><th>Confianza (heurística)</th></tr>
+    <tr><th>Relación</th><th>Etiqueta</th><th>Evidencia</th><th>Confianza (heurística)</th></tr>
     {% for rel in report.relations %}
     <tr>
       <td>{{ rel.source }} &rarr; {{ rel.target }}</td>
       <td>{{ rel.label }}</td>
+      <td>{{ rel.evidence | join(", ") if rel.evidence else "No especificada" }}</td>
       <td>{{ "%.2f" | format(rel.confidence) }}</td>
     </tr>
     {% endfor %}
@@ -120,8 +140,15 @@
   {% endif %}
 
   {% if has_graph %}
-  <h2>Grafo</h2>
-  <img src="graph.png" alt="Grafo de relaciones">
+  <h2>Grafo interactivo</h2>
+  <p class="muted">Arrastra para explorar; haz clic en nodos y relaciones para ver evidencia.
+    Las conexiones no prueban que dos hallazgos pertenezcan a la misma persona.
+    <a href="graph.html">Abrir grafo a pantalla completa</a>.</p>
+  <iframe src="graph.html" title="Grafo interactivo de relaciones OSINT"></iframe>
+  {% endif %}
+  {% if has_graph_image %}
+  <h3>Vista estática</h3>
+  <img src="graph.png" alt="Grafo estático de relaciones">
   {% endif %}
 
   <h2>Limitaciones</h2>

@@ -44,6 +44,21 @@
     .optional-tool label { font-weight: 650; cursor: pointer; }
     .optional-tool small { display: block; margin-top: .2rem; color: #657572;
                            font-size: .83rem; font-weight: 400; line-height: 1.45; }
+    .analysis-plan { margin-top: 1.7rem; }
+    .analysis-list { display: grid; gap: .65rem; margin: .8rem 0 0; padding: 0;
+                     list-style: none; }
+    .analysis-item { padding: .85rem 1rem; border: 1px solid #dce6e3;
+                     border-radius: 10px; background: #f8faf9; }
+    .analysis-item[data-active="false"] { opacity: .62; }
+    .analysis-heading { display: flex; align-items: center; justify-content: space-between;
+                        gap: .75rem; font-weight: 700; }
+    .analysis-state { color: #17695e; font-size: .82rem; font-weight: 650; }
+    .analysis-item[data-active="false"] .analysis-state { color: #657572; }
+    .analysis-item p { margin: .3rem 0 0; color: #657572; font-size: .85rem; line-height: 1.45; }
+    .analysis-toggle { display: flex; align-items: center; gap: .5rem; margin-top: .6rem;
+                       font-size: .87rem; font-weight: 650; cursor: pointer; }
+    .analysis-toggle input { width: 1.05rem; height: 1.05rem; margin: 0;
+                             accent-color: #267568; }
     .actions { display: flex; align-items: center; gap: 1rem; margin-top: 1.5rem; }
     button { min-height: 48px; padding: .7rem 1.25rem; border: 0; border-radius: 9px;
              background: #17695e; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
@@ -72,8 +87,8 @@
       <p class="privacy">
         Algunas comprobaciones consultan servicios externos: el email se envía a XposedOrNot
         (dos consultas), el username a todas las redes del dataset WhatsMyName (cientos de
-        sitios) y el dominio a servidores DNS y WHOIS, y a las fuentes de theHarvester si lo
-        activas. Usa solo datos propios o ficticios.
+        sitios), el dominio a DNS y WHOIS y el teléfono se analiza localmente. theHarvester es
+        opcional y solo se ejecuta si lo activas. Usa solo datos propios o ficticios.
       </p>
 
 
@@ -83,6 +98,30 @@
 
 
       <form method="post" action="/">
+        <section class="analysis-plan" aria-labelledby="analysis-title">
+          <h2 id="analysis-title" class="section-heading">Análisis y fuentes</h2>
+          <p class="section-help">Elige las entradas y verás qué se ejecutará. Las fuentes externas no se consultan hasta iniciar la búsqueda.</p>
+          <ul class="analysis-list" id="analysis-list">
+            {% for name, label, description, accepts, optional in module_catalog %}
+            <li class="analysis-item" data-accepts="{{ accepts | join(' ') }}"
+                data-optional="{{ 'true' if optional else 'false' }}">
+              <div class="analysis-heading">
+                <span>{{ label }}</span>
+                <span class="analysis-state" aria-live="polite"></span>
+              </div>
+              <p>{{ description }}</p>
+              {% if optional %}
+              <label class="analysis-toggle" for="module-{{ name }}">
+                <input type="checkbox" id="module-{{ name }}" name="modules" value="{{ name }}"
+                       {% if name in selected_modules %}checked{% endif %}>
+                Activar herramienta opcional
+              </label>
+              {% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+        </section>
+
         <div class="field-grid">
           {% for name, label, placeholder in fields %}
           <div class="field">
@@ -94,33 +133,14 @@
           {% endfor %}
         </div>
 
-
-        {% if optional_modules %}
-        <fieldset style="margin:0;padding:0;border:0">
-          <legend class="section-heading">Herramientas opcionales</legend>
-          <p class="section-help">
-            No se ejecutan automáticamente. Activa solo las que quieras incluir.
-          </p>
-          {% for name, label in optional_modules %}
-          <div class="optional-tool">
-            <input type="checkbox" id="module-{{ name }}" name="modules" value="{{ name }}"
-                   {% if name in selected_modules %}checked{% endif %}>
-            <label for="module-{{ name }}">
-              {{ label }}
-              <small>Módulo adicional; solo se ejecuta si lo seleccionas y aportas datos compatibles.</small>
-            </label>
-          </div>
-          {% endfor %}
-        </fieldset>
-        {% endif %}
-
-
         <div class="actions">
           <button type="submit">Iniciar búsqueda</button>
-          <p class="hint">Rellena al menos un campo. Con un username, la búsqueda puede tardar cerca de un minuto.</p>
+          <p class="hint">Rellena al menos un campo. Verás el progreso de cada módulo y, al
+            terminar, podrás revisar y filtrar las comprobaciones antes de generar el informe.</p>
         </div>
       </form>
     </section>
   </main>
+  <script src="{{ url_for('static', filename='search.js') }}" defer></script>
 </body>
 </html>

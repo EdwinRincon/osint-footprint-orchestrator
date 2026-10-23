@@ -1,12 +1,14 @@
 import asyncio
 
-from textual.widgets import Input, Static
+from textual.widgets import DataTable, Input, Static
 
+from osint_tool.models import Finding, ModuleResult, Relation, Report, Status, Target
 from osint_tool.tui import (
     MenuScreen,
     ModuleListScreen,
     ModulesScreen,
     OsintApp,
+    ResultScreen,
     TargetScreen,
 )
 
@@ -52,5 +54,43 @@ def test_dato_invalido_se_queda_en_el_formulario() -> None:
             await pilot.pause()
             assert isinstance(app.screen, TargetScreen)
             assert "dominio no válido" in str(app.screen.query_one("#error", Static).render())
+
+    asyncio.run(scenario())
+
+
+def test_resultados_muestran_hallazgos_y_relaciones_en_terminal(tmp_path) -> None:
+    finding = Finding(
+        entity_type="username",
+        type="profile",
+        value="https://example.test/demo_user",
+        source="Sitio ficticio",
+        detail="Perfil observado",
+        confidence=0.5,
+    )
+    relation = Relation(
+        "username:demo_user",
+        "profile:https://example.test/demo_user",
+        "perfil observado",
+        0.5,
+        ("Sitio ficticio",),
+    )
+    report = Report(
+        target=Target(username="demo_user"),
+        results=[ModuleResult("usernames", Status.OK, [finding])],
+        relations=[relation],
+    )
+
+    async def scenario() -> None:
+        app = OsintApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            app.switch_screen(ResultScreen(report, tmp_path, []))
+            await pilot.pause()
+
+            findings = app.screen.query_one("#findings", DataTable)
+            relations = app.screen.query_one("#relations", DataTable)
+            assert findings.row_count == 1
+            assert relations.row_count == 1
+            assert "https://example.test/demo_user" in str(findings.get_row_at(0))
+            assert "Sitio ficticio" in str(relations.get_row_at(0))
 
     asyncio.run(scenario())

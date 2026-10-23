@@ -32,7 +32,11 @@ def test_mismo_username_en_varias_redes() -> None:
         ("username:ana", "profile:https://github.com/ana"),
         ("username:ana", "profile:https://reddit.com/user/ana"),
     }
-    assert {r.label for r in relations} == {"perfil en GitHub", "perfil en Reddit"}
+    assert {r.label for r in relations} == {
+        "perfil observado en GitHub",
+        "perfil observado en Reddit",
+    }
+    assert {r.evidence for r in relations} == {("GitHub",), ("Reddit",)}
     assert all(r.confidence == 0.5 for r in relations)
 
 

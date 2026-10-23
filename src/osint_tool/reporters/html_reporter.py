@@ -31,7 +31,8 @@ class HtmlReporter:
             target=report.target.to_dict(),
             notice=LEGAL_NOTICE,
             created=report.created_at.isoformat(timespec="seconds"),
-            has_graph=(directory / "graph.png").is_file(),
+            has_graph=(directory / "graph.html").is_file(),
+            has_graph_image=(directory / "graph.png").is_file(),
         )
         path = directory / "report.html"
         path.write_text(html, encoding="utf-8")

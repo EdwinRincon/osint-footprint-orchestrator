@@ -12,10 +12,9 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Sequence
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
-from itertools import repeat
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -186,6 +185,10 @@ class UsernamesModule:
 
     name = "usernames"
     accepts = frozenset({"username"})
+    web_label = "Perfiles de username"
+    web_description = (
+        "Comprueba el username en el dataset WhatsMyName; puede consultar cientos de sitios."
+    )
 
     def __init__(
         self,
@@ -195,6 +198,12 @@ class UsernamesModule:
         """Sesión y sitios se pueden inyectar. Sin sitios, se cargan al ejecutar."""
         self._session = _http_session(load_settings()) if session is None else session
         self._sites = sites
+        self._progress_callback: Callable[[int, int], None] | None = None
+
+    def set_progress_callback(
+        self, callback: Callable[[int, int], None] | None
+    ) -> None:
+        self._progress_callback = callback
 
     def run(self, target: Target) -> ModuleOutput:
         if not target.username:
@@ -202,11 +211,20 @@ class UsernamesModule:
 
         # Carga diferida: si el dataset falta o falla, el estado queda en el informe del módulo.
         sites = self._sites if self._sites is not None else default_sites(load_settings())
+        outcomes: list[tuple[Finding | None, SourceCheck] | None] = [None] * len(sites)
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-            outcomes = list(pool.map(self._check, sites, repeat(target.username)))
+            futures = {
+                pool.submit(self._check, site, target.username): index
+                for index, site in enumerate(sites)
+            }
+            for completed, future in enumerate(as_completed(futures), start=1):
+                outcomes[futures[future]] = future.result()
+                if self._progress_callback is not None:
+                    self._progress_callback(completed, len(sites))
 
-        findings = [finding for finding, _ in outcomes if finding is not None]
-        source_checks = [check for _, check in outcomes]
+        completed_outcomes = [outcome for outcome in outcomes if outcome is not None]
+        findings = [finding for finding, _ in completed_outcomes if finding is not None]
+        source_checks = [check for _, check in completed_outcomes]
         self._log_inconclusive(source_checks)
         return ModuleOutput(findings=findings, source_checks=source_checks)
 

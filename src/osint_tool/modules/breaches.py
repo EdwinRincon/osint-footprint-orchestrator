@@ -135,6 +135,8 @@ class BreachesModule:
 
     name = "breaches"
     accepts = frozenset({"email"})
+    web_label = "Brechas conocidas"
+    web_description = "Consulta XposedOrNot para brechas asociadas al email proporcionado."
 
     def __init__(
         self,

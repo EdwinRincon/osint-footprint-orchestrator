@@ -37,7 +37,14 @@ where = ["src"]
 
 # Incluye la plantilla HTML dentro del paquete
 [tool.setuptools.package-data]
-osint_tool = ["py.typed", "web/templates/*.html", "reporters/templates/*.html"]
+osint_tool = [
+    "py.typed",
+    "web/templates/*.html",
+    "web/static/*.js",
+    "web/static/vendor/*.js",
+    "web/static/vendor/*.txt",
+    "reporters/templates/*.html",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -61,6 +68,8 @@ select = ["E", "F", "I", "B", "UP", "S", "SIM", "DTZ", "PERF", "PL", "RET", "RUF
 # CLI signatures are shaped by Typer; correlation helper arguments are kept explicit.
 "src/osint_tool/cli.py" = ["PLR0913", "PLR0917"]
 "src/osint_tool/correlator.py" = ["PLR0913", "PLR0917"]
+# Flask's app factory groups its route registration and shared request hooks.
+"src/osint_tool/web/app.py" = ["PLR0915"]
 # Validation failures are intentionally isolated per candidate.
 "src/osint_tool/modules/harvester.py" = ["PERF203"]
 

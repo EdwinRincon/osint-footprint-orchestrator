@@ -85,6 +85,10 @@ class PhoneModule:
 
     name = "phone"
     accepts = frozenset({"phone"})
+    web_label = "Metadatos del teléfono"
+    web_description = (
+        "Deriva región, tipo de línea y prefijo de operador; no identifica a su titular."
+    )
 
     def run(self, target: Target) -> list[Finding]:
         if not target.phone:

@@ -33,7 +33,7 @@ class Rule:
 # (siguen apareciendo en el informe).
 RULES: dict[str, Rule] = {
     "breach": Rule("email", "breach", "aparece en brecha"),
-    "profile": Rule("username", "profile", "perfil en {source}"),
+    "profile": Rule("username", "profile", "perfil observado en {source}"),
     "dns_record": Rule("domain", "dns", "registro DNS"),
     "subdomain": Rule("domain", "domain", "subdominio"),
     "ip_address": Rule("domain", "ip", "IP"),
@@ -122,6 +122,7 @@ def correlate(target: Target, findings: Iterable[Finding]) -> list[Relation]:
             target=dst,
             label=" / ".join(sorted(edge.labels)),
             confidence=edge.confidence(),
+            evidence=tuple(sorted(edge.by_source)),
         )
         for (src, dst), edge in sorted(edges.items())
     ]
