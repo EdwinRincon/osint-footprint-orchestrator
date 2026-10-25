@@ -15,8 +15,6 @@ source .venv/Scripts/activate    # Windows (Git Bash)
 pip install -e ".[dev]"
 ```
 
-
-
 ## Uso en terminal
 
 Inicia la interfaz interactiva de pantalla completa:

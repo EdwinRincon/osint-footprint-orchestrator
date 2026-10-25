@@ -71,11 +71,11 @@ SERVED_FILES = {
 }
 
 FIELDS = (
-    ("email", "Email", "ana@ejemplo.com"),
-    ("username", "Username", "anaperez"),
-    ("domain", "Dominio", "ejemplo.com"),
-    ("phone", "Teléfono (formato internacional)", "+34600000000"),
-    ("name", "Nombre", "Ana Pérez"),
+    ("name", "Nombre", "Nombre"),
+    ("email", "Email", "usuario@dominio.test"),
+    ("username", "Username", "usuario_ejemplo"),
+    ("phone", "Teléfono (formato internacional)", "+34000000000"),
+    ("domain", "Dominio", "dominio.test"),
 )
 
 CSP = (

@@ -26,7 +26,7 @@
     .progress-fill.indeterminate { width: 35%; animation: progress 1.4s ease-in-out infinite; }
     @keyframes progress { from { transform: translateX(-110%); }
                           to { transform: translateX(310%); } }
-    .muted { color: #657572; font-size: .9rem; }
+    .muted { color: #5e6d69; font-size: .9rem; }
     .module-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
                    gap: .55rem; margin: 1rem 0 0; padding: 0; list-style: none; }
     .module-list li { padding: .65rem .8rem; border: 1px solid #e1e9e6;
@@ -42,16 +42,20 @@
     .metric strong { display: block; font-size: 1.25rem; }
     .filters { display: flex; flex-wrap: wrap; align-items: center; gap: .7rem 1rem; }
     .filters label { display: inline-flex; align-items: center; gap: .4rem; }
-    .filters select { min-height: 44px; padding: .55rem .7rem; border: 1px solid #cbd8d5;
+    .filters select { min-height: 44px; padding: .55rem .7rem; border: 1px solid #7b908b;
                       border-radius: 8px; background: #fff; color: inherit; font: inherit; }
     input[type="search"] { flex: 1 1 240px; min-height: 44px; padding: .65rem .8rem;
-                           border: 1px solid #cbd8d5; border-radius: 8px; font: inherit; }
+                           border: 1px solid #7b908b; border-radius: 8px; background: #fff;
+                           color: inherit; font: inherit; }
+    input[type="search"]::placeholder { color: #5e6d69; }
     button, .button { min-height: 42px; padding: .6rem .9rem; border: 0; border-radius: 8px;
                       background: #17695e; color: #fff; font: inherit; font-weight: 700;
                       text-decoration: none; cursor: pointer; }
-    button.secondary { border: 1px solid #cbd8d5; background: #fff; color: #24534d; }
-    button:disabled { opacity: .55; cursor: wait; }
-    :focus-visible { outline: 3px solid #72b9a9; outline-offset: 2px; }
+    button.secondary, .button.secondary {
+      border: 1px solid #7b908b; background: #fff; color: #24534d;
+    }
+    button:disabled { background: #e4ece9; color: #536563; cursor: wait; }
+    :focus-visible { outline: 3px solid #17695e; outline-offset: 2px; }
     .table-wrap { margin-top: 1rem; overflow-x: auto; border: 1px solid #dce6e3;
                   border-radius: 9px; overscroll-behavior-inline: contain; }
     table { width: 100%; border-collapse: collapse; font-size: .95rem; }

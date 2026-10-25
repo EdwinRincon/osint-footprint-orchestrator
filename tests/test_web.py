@@ -70,6 +70,19 @@ def test_formulario_inicial(client: FlaskClient) -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert b"<form" in response.data
+    assert response.data.index(b'id="name"') < response.data.index(b'id="email"')
+    assert response.data.index(b'id="email"') < response.data.index(b'id="analysis-title"')
+    assert response.data.index(b'class="actions"') < response.data.index(
+        b'id="analysis-title"'
+    )
+    assert b'input[type="email"]' in response.data
+    assert b'input[type="tel"]' in response.data
+    assert b"grid-template-columns: repeat(2, minmax(0, 1fr))" in response.data
+    assert b".field-grid, .analysis-list { grid-template-columns: 1fr;" in response.data
+    assert b'type="email"' in response.data
+    assert b'type="tel"' in response.data
+    assert b'data-focus-field="email"' in response.data
+    assert b"sitios del dataset WhatsMyName" in response.data
     assert b"Uso responsable" in response.data
     assert b"theHarvester" in response.data
     assert b"DNS y WHOIS" in response.data
