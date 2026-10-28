@@ -158,7 +158,7 @@
             ("inconclusive", "Inconcluso"), ("error", "Error")
           ] %}
           <label><input type="checkbox" name="statuses" value="{{ value }}"
-                        {% if value != "not_found" %}checked{% endif %}>{{ label }}</label>
+                        {% if value == "found" %}checked{% endif %}>{{ label }}</label>
           {% endfor %}
         </div>
         <section class="result-section" aria-labelledby="findings-title">

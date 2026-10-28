@@ -61,7 +61,8 @@ automáticamente y puedes desactivar fuentes concretas en **Personalizar fuentes
 La pantalla indica qué datos puede recibir cada fuente antes de iniciar la búsqueda. El avance muestra
 los resultados; después puedes filtrar hallazgos, relaciones y comprobaciones por módulo,
 estado y texto antes de pulsar **Generar informe**. Los totales de cobertura conservan también
-las comprobaciones ocultas por filtros. Los resultados se muestran en bloques de 50 filas para
+las comprobaciones ocultas por filtros. Inicialmente solo está seleccionado el estado
+**Encontrado**; puedes activar los demás estados para incluirlos. Los resultados se muestran en bloques de 50 filas para
 mantener manejables las tablas extensas.
 El teléfono acepta E.164 para cualquier país o un número nacional acompañado de su región
 ISO 3166-1 alfa-2 (por ejemplo, `US`, `GB` o `CO`); el resultado se normaliza a E.164.

@@ -215,6 +215,22 @@ def test_resultados_incluyen_descargas_html_y_json(client: FlaskClient) -> None:
     assert b"Desliza la tabla horizontalmente" in results_page
 
 
+def test_filtros_de_estado_iniciales(client: FlaskClient) -> None:
+    response = client.post(
+        "/", data={"domain": "ejemplo.com", "offline": "", "modules": ["domain"]}
+    )
+    results_page = client.get(response.headers["Location"]).data
+
+    inputs = re.findall(
+        rb'<input type="checkbox" name="statuses" value="([^"]+)"([^>]*)>',
+        results_page,
+    )
+    assert {value for value, _ in inputs} == {
+        b"found", b"not_found", b"inconclusive", b"error"
+    }
+    assert {value for value, attrs in inputs if b"checked" in attrs} == {b"found"}
+
+
 def test_progreso_de_modulos_se_exhibe_durante_la_busqueda(
     client: FlaskClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
