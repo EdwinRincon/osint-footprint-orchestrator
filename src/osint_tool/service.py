@@ -13,6 +13,7 @@ from collections.abc import Callable, Sequence
 import requests
 
 import osint_tool.modules  # noqa: F401  (el import registra todos los módulos)
+from osint_tool.accounts import load_account_index
 from osint_tool.correlator import correlate
 from osint_tool.external_errors import ExternalToolError
 from osint_tool.models import (
@@ -37,7 +38,7 @@ logger = logging.getLogger(__name__)
 EXPECTED_ERRORS = (requests.RequestException, ExternalToolError, OSError, ValueError)
 
 NO_MODULES_NOTE = (
-    "Ningún módulo acepta los datos de entrada indicados: no se consultó ninguna fuente."
+    "No hay fuentes habilitadas que admitan estos datos; no se consultó ninguna fuente."
 )
 
 ProgressCallback = Callable[[ModuleResult, int, int], None]
@@ -142,7 +143,11 @@ def run_investigation(
             on_progress(result, completed, total)
 
     findings = [finding for result in results for finding in result.findings]
-    report = Report(target=target, results=results, relations=correlate(target, findings))
+    report = Report(
+        target=target,
+        results=results,
+        relations=correlate(target, findings, load_account_index()),
+    )
     if not results:
         report.notes.append(NO_MODULES_NOTE)
     return report

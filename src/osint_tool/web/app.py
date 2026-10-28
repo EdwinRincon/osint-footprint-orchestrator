@@ -25,6 +25,7 @@ from flask import (
 )
 from flask.typing import ResponseReturnValue
 
+from osint_tool.accounts import load_account_index
 from osint_tool.config import load_settings
 from osint_tool.correlator import correlate
 from osint_tool.models import (
@@ -40,11 +41,12 @@ from osint_tool.registry import (
     all_modules,
     applicable_modules,
     web_module_catalog,
+    web_network_modules,
     web_optional_modules,
 )
 from osint_tool.reporters import write_reports
 from osint_tool.reporters.base import LEGAL_NOTICE
-from osint_tool.service import run_investigation
+from osint_tool.service import NO_MODULES_NOTE, run_investigation
 from osint_tool.validation import ValidationError, build_target
 
 logger = logging.getLogger(__name__)
@@ -74,7 +76,8 @@ FIELDS = (
     ("name", "Nombre", "Nombre"),
     ("email", "Email", "usuario@dominio.test"),
     ("username", "Username", "usuario_ejemplo"),
-    ("phone", "Teléfono (formato internacional)", "+34000000000"),
+    ("phone", "Teléfono (E.164 o número nacional)", "+14155552671"),
+    ("phone_region", "Región del teléfono (ISO; opcional)", "US, GB, CO..."),
     ("domain", "Dominio", "dominio.test"),
 )
 
@@ -194,7 +197,7 @@ def _filter_report(
 
     filtered = replace(report, results=results, notes=list(report.notes))
     # Las relaciones se derivan de hallazgos; conservar las originales filtraría datos ocultos.
-    filtered.relations = correlate(report.target, filtered.findings)
+    filtered.relations = correlate(report.target, filtered.findings, load_account_index())
     filtered.filter_summary = {
         "statuses": ", ".join(sorted(statuses)) or "ninguno",
         "search": query,
@@ -392,6 +395,7 @@ def create_app(output_dir: Path | None = None) -> Flask:
         error: str | None = None,
         values: dict[str, str] | None = None,
         selected_modules: set[str] | None = None,
+        offline: bool = True,
     ) -> str:
         return render_template(
             "index.html",
@@ -401,6 +405,7 @@ def create_app(output_dir: Path | None = None) -> Flask:
             values=values or {},
             module_catalog=web_module_catalog(),
             selected_modules=selected_modules or set(),
+            offline=offline,
         )
 
     # Compartir una ruta GET separa la presentación inicial de la tramitación de búsquedas.
@@ -412,15 +417,17 @@ def create_app(output_dir: Path | None = None) -> Flask:
     @app.post("/")
     def search() -> ResponseReturnValue:
         values = {name: request.form.get(name, "") for name, _, _ in FIELDS}
-        optional_modules = dict(web_optional_modules())
+        selectable_modules = dict(web_optional_modules() + web_network_modules())
         selected_modules = set(request.form.getlist("modules"))
-        invalid_modules = selected_modules - optional_modules.keys()
+        offline = request.form.get("offline") == "on"
+        invalid_modules = selected_modules - selectable_modules.keys()
         if invalid_modules:
             return (
                 form(
                     error="La selección de herramientas opcionales no es válida.",
                     values=values,
-                    selected_modules=selected_modules & optional_modules.keys(),
+                    selected_modules=selected_modules & selectable_modules.keys(),
+                    offline=offline,
                 ),
                 400,
             )
@@ -428,16 +435,45 @@ def create_app(output_dir: Path | None = None) -> Flask:
             target = build_target(**values)
         except ValidationError as exc:
             return (
-                form(error=str(exc), values=values, selected_modules=selected_modules),
+                form(
+                    error=str(exc),
+                    values=values,
+                    selected_modules=selected_modules,
+                    offline=offline,
+                ),
                 400,
             )
 
-        module_names = [
-            name
-            for name in all_modules()
-            if name not in optional_modules or name in selected_modules
-        ]
+        available_modules = all_modules()
+        network_modules = dict(web_network_modules())
+        module_names = []
+        for name, module in available_modules.items():
+            requires_network = getattr(module, "requires_network", False)
+            optional = getattr(module, "web_opt_in", False)
+            if (not requires_network and not optional) or (
+                not offline and name in selected_modules
+            ):
+                module_names.append(name)
         modules = applicable_modules(target, module_names)
+        if not modules:
+            error = NO_MODULES_NOTE
+            if "name" in target.provided():
+                name_sources = [
+                    label
+                    for name, label in network_modules.items()
+                    if "name" in available_modules[name].accepts
+                ]
+                if name_sources:
+                    error += (
+                        " Para buscar coincidencias de nombre, desmarca «Modo privado»; "
+                        f"se habilitarán estas fuentes: {', '.join(name_sources)}."
+                    )
+            return form(
+                error=error,
+                values=values,
+                selected_modules=selected_modules,
+                offline=offline,
+            )
         job = jobs.submit(target, modules)
         if job is None:
             return (
@@ -448,6 +484,7 @@ def create_app(output_dir: Path | None = None) -> Flask:
                     ),
                     values=values,
                     selected_modules=selected_modules,
+                    offline=offline,
                 ),
                 429,
             )

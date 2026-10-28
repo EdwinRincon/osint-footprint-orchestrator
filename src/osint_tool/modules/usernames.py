@@ -1,7 +1,7 @@
 """Módulo de usernames: comprueba si existe un perfil público en varias redes.
 
 Los sitios salen del dataset comunitario WhatsMyName (CC BY-SA 4.0), con cientos de
-redes, que se configura con OSINT_WMN_FILE y se actualiza con `update_wmn_dataset`.
+redes, que se configura con OSINT_WMN_FILE.
 No hay lista de sitios en el código.
 
 Que un username exista en dos redes NO prueba que sea la misma persona, por
@@ -30,6 +30,7 @@ from osint_tool.models import (
     SourceCheckStatus,
     Target,
 )
+from osint_tool.pivots import USERNAME_PLACEHOLDER
 from osint_tool.registry import ModuleSkipped, register
 
 logger = logging.getLogger(__name__)
@@ -39,8 +40,8 @@ MAX_WORKERS = 8  # comprobaciones simultáneas
 SITE_TIMEOUT = 5.0  # un sitio lento no merece más espera: su resultado sería inconcluso
 DEFAULT_FOUND_CODE = 200
 DEFAULT_MISSING_CODE = 404
-USERNAME_PLACEHOLDER = "{username}"
 WMN_PLACEHOLDER = "{account}"
+NSFW_CATEGORY = "xx NSFW xx"
 
 
 @dataclass(frozen=True)
@@ -81,13 +82,13 @@ def _read_wmn_entries(path: Path) -> list[Any]:
 
 
 # Excluir protecciones respeta las condiciones del sitio y evita automatizar barreras de acceso.
-def _is_checkable(entry: Any, categories: frozenset[str]) -> bool:
-    """Descarta entradas inválidas, con POST, con anti-automatización o de otra categoría."""
+def _is_checkable(entry: Any) -> bool:
+    """Descarta entradas inválidas, protegidas, NSFW o con POST."""
     if not isinstance(entry, dict) or entry.get("valid") is False:
         return False
     if entry.get("post_body") or entry.get("protection"):
         return False
-    return not categories or entry.get("cat") in categories
+    return entry.get("cat") != NSFW_CATEGORY
 
 
 # Exigir plantillas esenciales evita consultas incompletas contra URLs arbitrarias.
@@ -114,21 +115,17 @@ def _to_site(entry: dict[str, Any]) -> Site | None:
 
 
 # Convertir una sola vez el dataset separa la validación de las comprobaciones HTTP.
-def load_wmn_sites(path: Path, categories: frozenset[str] = frozenset()) -> list[Site]:
+def load_wmn_sites(path: Path) -> list[Site]:
     """Lee el dataset WhatsMyName y devuelve los sitios que se pueden comprobar.
 
-    Se omiten: entradas con POST, marcadas como no válidas, con protecciones
-    anti-automatización (captcha, Cloudflare...) o fuera de las categorías pedidas.
+    Se omiten entradas NSFW, con POST, marcadas como no válidas o con protecciones
+    anti-automatización (captcha, Cloudflare...).
 
     Raises:
         OSError: si el fichero no se puede leer.
         ValueError: si no es un JSON con la lista `sites`.
     """
-    candidates = (
-        _to_site(entry)
-        for entry in _read_wmn_entries(path)
-        if _is_checkable(entry, categories)
-    )
+    candidates = (_to_site(entry) for entry in _read_wmn_entries(path) if _is_checkable(entry))
     sites = [site for site in candidates if site is not None]
     logger.info("Sitios cargados de %s: %d", path.name, len(sites))
     return sites
@@ -139,14 +136,14 @@ def default_sites(settings: Settings) -> list[Site]:
     """Sitios del dataset configurado.
 
     Raises:
-        ModuleSkipped: si el dataset no existe (se descarga con `update_wmn_dataset`).
+        ModuleSkipped: si no se ha descargado el dataset desde el repositorio oficial.
     """
     if not settings.wmn_file.is_file():
         raise ModuleSkipped(
-            "Dataset WhatsMyName no encontrado: descárgalo con la opción de actualización "
-            "o indica su ruta en OSINT_WMN_FILE"
+            "Dataset WhatsMyName no encontrado: descarga wmn-data.json desde "
+            "https://github.com/WebBreacher/WhatsMyName o indica su ruta en OSINT_WMN_FILE."
         )
-    return load_wmn_sites(settings.wmn_file, settings.wmn_categories)
+    return load_wmn_sites(settings.wmn_file)
 
 
 # Mantener la ambigüedad como None evita clasificar bloqueos como cuentas inexistentes.
@@ -197,10 +194,12 @@ class UsernamesModule:
     """Busca un username en perfiles públicos, sin iniciar sesión ni evadir bloqueos."""
 
     name = "usernames"
+    requires_network = True
     accepts = frozenset({"username"})
     web_label = "Perfiles de username"
     web_description = (
-        "Comprueba el username en el dataset WhatsMyName; puede consultar cientos de sitios."
+        "Comprueba el username en el dataset WhatsMyName; excluye sitios NSFW por defecto "
+        "y puede consultar cientos de sitios."
     )
 
     # La sesión y el conjunto de sitios inyectables permiten pruebas aisladas y reproducibles.
@@ -215,9 +214,7 @@ class UsernamesModule:
         self._progress_callback: Callable[[int, int], None] | None = None
 
     # Cambiar el callback por ejecución evita conservar referencias de una investigación previa.
-    def set_progress_callback(
-        self, callback: Callable[[int, int], None] | None
-    ) -> None:
+    def set_progress_callback(self, callback: Callable[[int, int], None] | None) -> None:
         # El callback se cambia por investigación para no retener estado entre ejecuciones.
         self._progress_callback = callback
 
