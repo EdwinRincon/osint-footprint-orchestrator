@@ -20,7 +20,7 @@ from osint_tool.models import (
 from osint_tool.web import app as webapp
 
 JOB_URL = re.compile(r"^/jobs/[A-Za-z0-9_-]+$")
-NO_MODULES_TEXT = "Ningún módulo acepta"
+NO_MODULES_TEXT = "No hay fuentes habilitadas"
 
 
 def _fake_investigation(
@@ -77,23 +77,36 @@ def test_formulario_inicial(client: FlaskClient) -> None:
     )
     assert b'input[type="email"]' in response.data
     assert b'input[type="tel"]' in response.data
+    assert b'id="phone_region"' in response.data
     assert b"grid-template-columns: repeat(2, minmax(0, 1fr))" in response.data
     assert b".field-grid, .analysis-list { grid-template-columns: 1fr;" in response.data
     assert b'type="email"' in response.data
     assert b'type="tel"' in response.data
-    assert b'data-focus-field="email"' in response.data
-    assert b"sitios del dataset WhatsMyName" in response.data
+    assert b'id="source-settings-summary"' in response.data
+    assert b"Datos que puede recibir:" in response.data
+    assert b"WhatsMyName" in response.data
     assert b"Uso responsable" in response.data
     assert b"theHarvester" in response.data
     assert b"DNS y WHOIS" in response.data
     assert b"Perfiles de username" in response.data
-    assert b"Ver" in response.data
+    assert b"Iniciar an\xc3\xa1lisis" in response.data
+    assert b'class="source-settings"' in response.data
+    assert b"Modo privado: no permitir consultas externas" in response.data
+    assert b"@media (max-width: 680px)" in response.data
+    assert re.search(rb'<input id="offline"[^>]*checked', response.data, re.DOTALL)
+    assert b'data-network="true"' in response.data
+    for module_name in (b"breaches", b"domain", b"harvester", b"usernames"):
+        assert not re.search(
+            rb'<input id="module-' + module_name + rb'"[^>]*checked', response.data
+        )
 
 
 def test_busqueda_es_asincrona_y_no_genera_informe_automaticamente(
     client: FlaskClient, salida: Path
 ) -> None:
-    response = client.post("/", data={"domain": "ejemplo.com"})
+    response = client.post(
+        "/", data={"domain": "ejemplo.com", "offline": "", "modules": ["domain"]}
+    )
     assert response.status_code == 303
     job_url = response.headers["Location"]
     assert JOB_URL.match(job_url)
@@ -127,8 +140,63 @@ def test_busqueda_es_asincrona_y_no_genera_informe_automaticamente(
     assert len(list(salida.glob("*/report.html"))) == 1
 
 
+@pytest.mark.parametrize("name", ["Edwin Rincon Cardona", "Edwin", "Edwin Rincon"])
+def test_entradas_combinadas_llegan_al_informe_sin_consultas_reales(
+    name: str, client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    observed: list[Target] = []
+
+    def fake_investigation(target, modules=None, **_callbacks):  # type: ignore[no-untyped-def]
+        observed.append(target)
+        return _fake_investigation(target, modules)
+
+    monkeypatch.setattr(webapp, "run_investigation", fake_investigation)
+    selected_sources = [
+        module
+        for module, _ in webapp.web_network_modules()
+        if module != "harvester"
+    ]
+    response = client.post(
+        "/",
+        data={
+            "name": name,
+            "email": "rinconedwin@example.test",
+            "username": "erinconc",
+            "phone": "642775948",
+            "phone_region": "ES",
+            "domain": "example.com",
+            "offline": "",
+            "modules": selected_sources,
+        },
+    )
+    assert response.status_code == 303
+    job_url = response.headers["Location"]
+    assert _wait_for_completion(client, job_url)["status"] == "complete"
+    assert observed[0].to_dict() == {
+        "email": "rinconedwin@example.test",
+        "username": "erinconc",
+        "domain": "example.com",
+        "phone": "+34642775948",
+        "name": name,
+    }
+
+    generated = client.post(
+        f"{job_url}/report",
+        data={"statuses": ["found", "not_found", "inconclusive", "error"]},
+    )
+    assert generated.status_code == 200
+    report_json = client.get(generated.get_json()["download_urls"]["report.json"])
+    assert report_json.status_code == 200
+    assert report_json.get_json()["target"] == observed[0].to_dict()
+    report_html = client.get(generated.get_json()["report_url"])
+    assert report_html.status_code == 200
+    assert b"Informe OSINT" in report_html.data
+
+
 def test_resultados_incluyen_descargas_html_y_json(client: FlaskClient) -> None:
-    response = client.post("/", data={"domain": "ejemplo.com"})
+    response = client.post(
+        "/", data={"domain": "ejemplo.com", "offline": "", "modules": ["domain"]}
+    )
     results_page = client.get(response.headers["Location"]).data
 
     assert results_page.index(b'id="generate-report"') < results_page.index(
@@ -143,6 +211,8 @@ def test_resultados_incluyen_descargas_html_y_json(client: FlaskClient) -> None:
     assert b'id="graph-link"' in results_page
     assert b'download>' in results_page
     assert b"PDF no disponible" in results_page
+    assert b'Tabla de hallazgos; desplazamiento horizontal' in results_page
+    assert b"Desliza la tabla horizontalmente" in results_page
 
 
 def test_progreso_de_modulos_se_exhibe_durante_la_busqueda(
@@ -161,7 +231,9 @@ def test_progreso_de_modulos_se_exhibe_durante_la_busqueda(
         return Report(target=target, results=[result])
 
     monkeypatch.setattr(webapp, "run_investigation", slow_investigation)
-    response = client.post("/", data={"username": "demo_user"})
+    response = client.post(
+        "/", data={"username": "demo_user", "offline": "", "modules": ["usernames"]}
+    )
     job_url = response.headers["Location"]
     assert started.wait(timeout=1)
     status = client.get(f"{job_url}/status").get_json()
@@ -172,18 +244,88 @@ def test_progreso_de_modulos_se_exhibe_durante_la_busqueda(
     assert _wait_for_completion(client, job_url)["status"] == "complete"
 
 
-def test_busqueda_por_nombre_avisa_que_no_se_consulto_ninguna_fuente(
+def test_busqueda_por_nombre_no_inicia_una_investigacion_sin_fuentes(
     real_client: FlaskClient,
 ) -> None:
     response = real_client.post("/", data={"name": "Ana Pérez"})
-    assert response.status_code == 303
-    job_url = response.headers["Location"]
-    assert _wait_for_completion(real_client, job_url)["status"] == "complete"
-    location = real_client.post(f"{job_url}/report", data={"statuses": []}).get_json()[
-        "report_url"
-    ]
-    html = real_client.get(location).data.decode()
-    assert NO_MODULES_TEXT in html
+    assert response.status_code == 200
+    assert NO_MODULES_TEXT in response.data.decode()
+    assert "desmarca «Modo privado»" in response.data.decode()
+    assert "Perfiles de GitHub por nombre" in response.data.decode()
+    assert not real_client.application.extensions["osint_jobs"]._jobs
+
+
+def test_busqueda_por_nombre_permite_opt_in_de_wikidata(
+    real_client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    selected: list[str] = []
+
+    def no_modules(target, names=None):
+        selected.extend(names or [])
+        return []
+
+    monkeypatch.setattr(webapp, "applicable_modules", no_modules)
+    response = real_client.post(
+        "/",
+        data={"name": "Ana Pérez", "offline": "", "modules": ["wikidata"]},
+    )
+
+    assert response.status_code == 200
+    assert "wikidata" in selected
+    assert "Datos que puede recibir:" in response.data.decode()
+
+
+def test_busqueda_offline_no_incluye_modulos_de_red(
+    real_client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    selected: list[str] = []
+
+    def no_local_modules(target, names=None):
+        selected.extend(names or [])
+        return []
+
+    monkeypatch.setattr(webapp, "applicable_modules", no_local_modules)
+    response = real_client.post(
+        "/",
+        data={
+            "domain": "ejemplo.com",
+            "email": "ana@ejemplo.com",
+            "offline": "on",
+            "modules": ["domain", "breaches"],
+        },
+    )
+
+    assert response.status_code == 200
+    assert selected == ["phone"]
+    assert NO_MODULES_TEXT in response.data.decode()
+
+
+def test_fuente_de_red_requiere_opt_in_individual(
+    real_client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    selected: list[str] = []
+
+    def no_modules(target, names=None):
+        selected.extend(names or [])
+        return []
+
+    monkeypatch.setattr(webapp, "applicable_modules", no_modules)
+    response = real_client.post(
+        "/", data={"email": "ana@ejemplo.com", "modules": ["breaches"]}
+    )
+
+    assert response.status_code == 200
+    assert "breaches" in selected
+    assert "usernames" not in selected
+    assert "domain" not in selected
+
+
+def test_email_de_brechas_explica_tercero_y_limites(client: FlaskClient) -> None:
+    response = client.get("/")
+
+    assert b"25/hora" in response.data
+    assert b"100/d\xc3\xada" in response.data
+    assert b"El correo se env\xc3\xada" in response.data
 
 
 def test_informe_filtra_comprobaciones_y_conserva_cobertura_completa(
@@ -224,7 +366,9 @@ def test_informe_filtra_comprobaciones_y_conserva_cobertura_completa(
 
     monkeypatch.setattr(webapp, "run_investigation", fake_investigation)
 
-    job_url = client.post("/", data={"username": "demo_user"}).headers["Location"]
+    job_url = client.post(
+        "/", data={"username": "demo_user", "offline": "", "modules": ["usernames"]}
+    ).headers["Location"]
     assert _wait_for_completion(client, job_url)["status"] == "complete"
     response = client.get(f"{job_url}/data")
     checks = response.get_json()["source_checks"]
@@ -300,9 +444,15 @@ def test_informe_filtra_por_modulo_y_recalcula_relaciones(
     )
     monkeypatch.setattr(webapp, "run_investigation", lambda *args, **kwargs: report)
 
-    job_url = client.post("/", data={"username": "demo", "phone": "+34600000000"}).headers[
-        "Location"
-    ]
+    job_url = client.post(
+        "/",
+        data={
+            "username": "demo",
+            "phone": "+34600000000",
+            "offline": "",
+            "modules": ["usernames"],
+        },
+    ).headers["Location"]
     assert _wait_for_completion(client, job_url)["status"] == "complete"
 
     data = client.get(f"{job_url}/data").get_json()
@@ -358,7 +508,9 @@ def test_dns_y_whois_aparecen_en_cobertura_y_se_filtran(
     report = Report(target=Target(domain="example.test"), results=[result])
     monkeypatch.setattr(webapp, "run_investigation", lambda *args, **kwargs: report)
 
-    job_url = client.post("/", data={"domain": "example.test"}).headers["Location"]
+    job_url = client.post(
+        "/", data={"domain": "example.test", "offline": "", "modules": ["domain"]}
+    ).headers["Location"]
     assert _wait_for_completion(client, job_url)["status"] == "complete"
     data = client.get(f"{job_url}/data").get_json()
     assert [check["source"] for check in data["source_checks"]] == [
@@ -398,7 +550,9 @@ def test_error_de_busqueda_en_segundo_plano_se_muestra(
         raise RuntimeError("dato privado")
 
     monkeypatch.setattr(webapp, "run_investigation", failed)
-    job_url = client.post("/", data={"domain": "ejemplo.com"}).headers["Location"]
+    job_url = client.post(
+        "/", data={"domain": "ejemplo.com", "offline": "", "modules": ["domain"]}
+    ).headers["Location"]
     status = _wait_for_completion(client, job_url)
     assert status["status"] == "failed"
     assert "dato privado" not in status["error"]
@@ -472,13 +626,17 @@ def test_cabeceras_de_seguridad(client: FlaskClient) -> None:
 
 
 def test_informes_no_se_guardan_en_cache(client: FlaskClient) -> None:
-    job_url = client.post("/", data={"domain": "ejemplo.com"}).headers["Location"]
+    job_url = client.post(
+        "/", data={"domain": "ejemplo.com", "offline": "", "modules": ["domain"]}
+    ).headers["Location"]
     assert client.get(job_url).headers["Cache-Control"] == "no-store"
 
 
 def test_origin_propio_se_acepta(client: FlaskClient) -> None:
     response = client.post(
-        "/", data={"domain": "ejemplo.com"}, headers={"Origin": "http://localhost"}
+        "/",
+        data={"domain": "ejemplo.com", "offline": "", "modules": ["domain"]},
+        headers={"Origin": "http://localhost"},
     )
     assert response.status_code == 303
 

@@ -84,8 +84,18 @@ def web_optional_modules() -> list[tuple[str, str]]:
     ]
 
 
+# Network-backed lookups require explicit selection in the local web interface.
+def web_network_modules() -> list[tuple[str, str]]:
+    """Network-backed sources that users must explicitly enable."""
+    return [
+        (name, getattr(module, "web_label", name.replace("_", " ").title()))
+        for name, module in _REGISTRY.items()
+        if getattr(module, "requires_network", False)
+    ]
+
+
 # El catálogo permite que la interfaz presente capacidades declaradas junto al módulo.
-def web_module_catalog() -> list[tuple[str, str, str, frozenset[str], bool]]:
+def web_module_catalog() -> list[tuple[str, str, str, frozenset[str], bool, bool]]:
     """Presentación de fuentes web y datos de entrada que las habilitan."""
     return [
         (
@@ -94,6 +104,7 @@ def web_module_catalog() -> list[tuple[str, str, str, frozenset[str], bool]]:
             getattr(module, "web_description", ""),
             module.accepts,
             getattr(module, "web_opt_in", False),
+            getattr(module, "requires_network", False),
         )
         for name, module in _REGISTRY.items()
     ]

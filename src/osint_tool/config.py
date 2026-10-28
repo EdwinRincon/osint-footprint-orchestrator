@@ -45,7 +45,6 @@ class Settings:
     output_dir: Path = Path("reports")
     user_agent: str = DEFAULT_USER_AGENT
     wmn_file: Path = DEFAULT_WMN_FILE  # dataset WhatsMyName con los sitios a comprobar
-    wmn_categories: frozenset[str] = frozenset()  # vacío = todas las categorías
     wmn_update_url: str = DEFAULT_WMN_UPDATE_URL  # origen oficial del dataset
     harvester_sources: str = DEFAULT_HARVESTER_SOURCES  # fuentes de theHarvester (-b)
     breaches_api_url: str = DEFAULT_BREACHES_API_URL  # nombres de brechas; plantilla con {email}
@@ -138,7 +137,7 @@ def load_settings() -> Settings:
 
     Variables (todas opcionales):
         OSINT_HTTP_TIMEOUT, OSINT_HTTP_RETRIES, OSINT_CLI_TIMEOUT, OSINT_OUTPUT_DIR,
-        OSINT_WMN_FILE, OSINT_WMN_CATEGORIES, OSINT_WMN_UPDATE_URL,
+        OSINT_WMN_FILE, OSINT_WMN_UPDATE_URL,
         OSINT_HARVESTER_SOURCES, OSINT_BREACHES_API_URL, OSINT_BREACHES_ANALYTICS_URL,
         OSINT_BREACHES_REFERENCE_URL
     """
@@ -151,7 +150,6 @@ def load_settings() -> Settings:
         cli_timeout=int(_read_number("OSINT_CLI_TIMEOUT", defaults.cli_timeout, MIN_CLI_TIMEOUT)),
         output_dir=_read_path("OSINT_OUTPUT_DIR", defaults.output_dir),
         wmn_file=_read_path("OSINT_WMN_FILE", defaults.wmn_file),
-        wmn_categories=frozenset(_split_sources(os.environ.get("OSINT_WMN_CATEGORIES", ""))),
         wmn_update_url=_read_https_url("OSINT_WMN_UPDATE_URL", defaults.wmn_update_url),
         harvester_sources=_read_sources("OSINT_HARVESTER_SOURCES", defaults.harvester_sources),
         breaches_api_url=_read_email_template_url(

@@ -10,7 +10,7 @@
             color: #172b2a; background: #f4f7f6; }
     * { box-sizing: border-box; }
     body { margin: 0; padding: clamp(2rem, 5vw, 3.5rem) 1rem; }
-    main { max-width: 960px; margin: 0 auto; }
+    main { max-width: 880px; margin: 0 auto; }
     .eyebrow { margin: 0 0 .65rem; color: #36766d; font-size: .76rem;
                font-weight: 750; letter-spacing: .13em; text-transform: uppercase; }
     h1 { margin: 0; font-size: clamp(2rem, 6vw, 2.8rem); letter-spacing: -.045em; }
@@ -22,15 +22,16 @@
     .notice { margin: 0 0 1.25rem; padding: .9rem 1rem; border: 1px solid #f0d79a;
               border-radius: 10px; background: #fff8e8; color: #664d19;
               font-size: .9rem; line-height: 1.5; }
-    .privacy { margin: 0 0 .6rem; color: #5e6d69; font-size: .88rem; line-height: 1.55; }
-    .privacy-list { display: flex; flex-wrap: wrap; gap: .35rem 1.1rem; margin: 0 0 1.4rem;
-                    padding-left: 1.2rem; color: #5e6d69; font-size: .86rem; line-height: 1.5; }
+    .privacy { margin: 0 0 1.2rem; padding: .8rem 1rem; border-radius: 9px;
+               background: #eef6f3; color: #24534d; font-size: .9rem; line-height: 1.55; }
     .error { margin: 0 0 1.25rem; padding: .8rem 1rem; border-radius: 9px;
              background: #fff0ef; color: #9b2c25; }
     .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
                   gap: 1.1rem 1rem; }
     .field label { display: block; margin-bottom: .45rem; font-size: .88rem;
                    font-weight: 650; }
+    .field small { display: block; margin-top: .35rem; color: #5e6d69;
+                   font-size: .8rem; line-height: 1.4; }
     .target-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
     .target-fields legend { margin-bottom: .8rem; padding: 0; font-size: 1rem; font-weight: 700; }
     input[type="text"], input[type="email"], input[type="tel"] {
@@ -44,16 +45,24 @@
     button:focus-visible { outline: 3px solid #17695e; outline-offset: 2px; }
     .section-heading { margin: 1.7rem 0 .25rem; font-size: 1rem; }
     .section-help { margin: 0 0 .8rem; color: #5e6d69; font-size: .86rem; line-height: 1.5; }
-    .optional-tool { display: flex; align-items: flex-start; gap: .7rem; padding: .9rem;
-                     border: 1px solid #dce6e3; border-radius: 10px; background: #f8faf9; }
-    .optional-tool input { width: 1.05rem; height: 1.05rem; margin: .1rem 0 0;
-                           accent-color: #267568; }
-    .optional-tool label { font-weight: 650; cursor: pointer; }
-    .optional-tool small { display: block; margin-top: .2rem; color: #5e6d69;
-                           font-size: .83rem; font-weight: 400; line-height: 1.45; }
     .analysis-plan { margin-top: 1.7rem; }
+    .privacy-toggle { display: flex; align-items: flex-start; gap: .7rem;
+                      padding: .9rem 1rem; border: 1px solid #dce6e3;
+                      border-radius: 10px; background: #f8faf9; cursor: pointer; }
+    .privacy-toggle input { flex: 0 0 auto; width: 1.15rem; height: 1.15rem;
+                            margin: .1rem 0 0; accent-color: #267568; }
+    .privacy-toggle strong, .privacy-toggle small { display: block; }
+    .privacy-toggle small { margin-top: .2rem; color: #5e6d69;
+                            font-size: .83rem; font-weight: 400; line-height: 1.45; }
+    .source-settings { margin-top: .75rem; border: 1px solid #dce6e3;
+                       border-radius: 10px; background: #fff; }
+    .source-settings summary { min-height: 48px; padding: .8rem 1rem; color: #24534d;
+                               font-size: .9rem; font-weight: 700; cursor: pointer; }
+    .source-settings summary:focus-visible { outline: 3px solid #17695e;
+                                              outline-offset: 2px; }
+    .source-settings .section-help { margin: 0; padding: 0 1rem .7rem; }
     .analysis-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-                     gap: .65rem; margin: .8rem 0 0; padding: 0;
+                     gap: .65rem; margin: 0; padding: 0 1rem 1rem;
                      list-style: none; }
     .analysis-item { padding: .85rem 1rem; border: 1px solid #dce6e3;
                      border-radius: 10px; background: #f8faf9; }
@@ -63,12 +72,7 @@
     .analysis-state { color: #17695e; font-size: .82rem; font-weight: 650; }
     .analysis-item[data-active="false"] .analysis-state { color: #5e6d69; }
     .analysis-item p { margin: .3rem 0 0; color: #5e6d69; font-size: .85rem; line-height: 1.45; }
-    .analysis-requirement { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem;
-                            margin-top: .45rem !important; font-size: .82rem !important; }
-    .field-link { min-height: 32px; padding: .15rem .35rem; border: 1px solid #7b908b;
-                  border-radius: 6px; background: #fff; color: #24534d;
-                  font: inherit; font-weight: 650; cursor: pointer; }
-    .field-link:hover { background: #e9f1ef; }
+    .analysis-requirement { margin-top: .45rem !important; font-size: .82rem !important; }
     .analysis-toggle { display: flex; align-items: center; gap: .5rem; margin-top: .6rem;
                        font-size: .87rem; font-weight: 650; cursor: pointer; }
     .analysis-toggle input { width: 1.05rem; height: 1.05rem; margin: 0;
@@ -78,11 +82,16 @@
              background: #17695e; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
     button:hover { background: #10564d; }
     .hint { margin: 0; color: #5e6d69; font-size: .85rem; }
-    @media (max-width: 560px) {
+    @media (max-width: 680px) {
       body { padding: 2rem .85rem; }
       .field-grid, .analysis-list { grid-template-columns: 1fr; gap: .9rem; }
       .actions { align-items: stretch; flex-direction: column; }
       button { width: 100%; }
+    }
+    @media (max-width: 380px) {
+      body { padding: 1.1rem .65rem; }
+      .card { padding: 1rem; border-radius: 12px; }
+      h1 { font-size: 1.9rem; }
     }
   </style>
 </head>
@@ -98,14 +107,9 @@
 
     <section class="card" aria-label="Formulario de búsqueda">
       <p class="notice">{{ notice }}</p>
-      <p class="privacy">Usa solo datos propios o ficticios. Antes de iniciar, ten en cuenta dónde se procesan:</p>
-      <ul class="privacy-list">
-        <li>Email → XposedOrNot</li>
-        <li>Username → sitios del dataset WhatsMyName</li>
-        <li>Dominio → consultas DNS y WHOIS</li>
-        <li>Teléfono → análisis local</li>
-        <li>theHarvester → consulta externa opcional</li>
-      </ul>
+      <p class="privacy" id="privacy-status" aria-live="polite">
+        Modo privado activado: por defecto solo se ejecutan análisis locales. Tus datos no salen del equipo.
+      </p>
 
       {% if error %}
       <p class="error" role="alert">{{ error }}</p>
@@ -117,7 +121,7 @@
           <legend>Datos de búsqueda</legend>
           <div class="field-grid">
             {% for name, label, placeholder in fields %}
-            <div class="field">
+            <div class="field" data-field="{{ name }}" {% if name == "phone_region" %}hidden{% endif %}>
               <label for="{{ name }}">{{ label }}</label>
               {% if name == "email" %}
               <input type="email" id="{{ name }}" name="{{ name }}" maxlength="254"
@@ -132,46 +136,64 @@
                      placeholder="{{ placeholder }}" autocomplete="off"
                      value="{{ values.get(name, '') }}">
               {% endif %}
+              {% if name == "phone" %}
+              <small>Usa +código de país o indica la región si introduces un número nacional.</small>
+              {% endif %}
             </div>
             {% endfor %}
             <div class="actions">
-              <button type="submit">Iniciar búsqueda</button>
-              <p class="hint">Rellena al menos un campo. Verás el progreso de cada módulo y, al
-                terminar, podrás revisar y filtrar las comprobaciones antes de generar el informe.</p>
+              <button type="submit">Iniciar análisis</button>
+              <p class="hint">Rellena uno o varios campos; el análisis compatible se selecciona automáticamente.</p>
             </div>
           </div>
         </fieldset>
 
         <section class="analysis-plan" aria-labelledby="analysis-title">
-          <h2 id="analysis-title" class="section-heading">Análisis y fuentes</h2>
-          <p class="section-help">Elige las entradas y verás qué se ejecutará. Las fuentes externas no se consultan hasta iniciar la búsqueda.</p>
-          <ul class="analysis-list" id="analysis-list">
-            {% for name, label, description, accepts, optional in module_catalog %}
-            <li class="analysis-item" data-accepts="{{ accepts | join(' ') }}"
-                data-optional="{{ 'true' if optional else 'false' }}">
-              <div class="analysis-heading">
-                <span>{{ label }}</span>
-                <span class="analysis-state" aria-live="polite"></span>
-              </div>
-              <p>{{ description }}</p>
-              <p class="analysis-requirement">
-                Se activa con
-                {% for field_name, field_label, _ in fields if field_name in accepts %}
-                <button type="button" class="field-link" data-focus-field="{{ field_name }}">
-                  {{ field_label }}
-                </button>
-                {% endfor %}
-              </p>
-              {% if optional %}
-              <label class="analysis-toggle" for="module-{{ name }}">
-                <input type="checkbox" id="module-{{ name }}" name="modules" value="{{ name }}"
-                       {% if name in selected_modules %}checked{% endif %}>
-                Activar herramienta opcional
-              </label>
+          <h2 id="analysis-title" class="section-heading">Privacidad y fuentes</h2>
+          <label class="privacy-toggle" for="offline">
+            <input id="offline" name="offline" type="checkbox" value="on"
+                   {% if offline %}checked{% endif %}>
+            <span>
+              <strong>Modo privado: no permitir consultas externas</strong>
+              <small>Activado por defecto. Desmárcalo para habilitar las fuentes compatibles; cada fuente indicará qué dato recibe.</small>
+            </span>
+          </label>
+          <details class="source-settings" {% if selected_modules %}open{% endif %}>
+            <summary id="source-settings-summary">Personalizar fuentes externas</summary>
+            <p class="section-help">
+              Al habilitar consultas externas se seleccionan las fuentes compatibles con tus datos.
+              Desmarca aquí las que prefieras no consultar.
+            </p>
+            <p class="section-help" id="no-applicable-sources" hidden>
+              No hay fuentes externas compatibles todavía; completa un dato para ver las opciones.
+            </p>
+            <ul class="analysis-list" id="analysis-list">
+              {% for name, label, description, accepts, optional, requires_network in module_catalog %}
+              {% if optional or requires_network %}
+              <li class="analysis-item" data-accepts="{{ accepts | join(' ') }}"
+                  data-optional="{{ 'true' if optional else 'false' }}"
+                  data-network="{{ 'true' if requires_network else 'false' }}">
+                <div class="analysis-heading">
+                  <span>{{ label }}</span>
+                  <span class="analysis-state" aria-live="polite"></span>
+                </div>
+                <p>{{ description }}</p>
+                <p class="analysis-requirement">
+                  Datos que puede recibir:
+                  {% for field_name, field_label, _ in fields if field_name in accepts %}
+                  {{ field_label }}{% if not loop.last %}, {% endif %}
+                  {% endfor %}
+                </p>
+                <label class="analysis-toggle" for="module-{{ name }}">
+                  <input type="checkbox" id="module-{{ name }}" name="modules" value="{{ name }}"
+                         {% if name in selected_modules %}checked{% endif %}>
+                  {% if requires_network %}Permitir esta consulta externa{% else %}Activar herramienta opcional{% endif %}
+                </label>
+              </li>
               {% endif %}
-            </li>
-            {% endfor %}
-          </ul>
+              {% endfor %}
+            </ul>
+          </details>
         </section>
 
       </form>

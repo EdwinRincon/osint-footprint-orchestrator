@@ -135,6 +135,7 @@ class HarvesterModule:
     """
 
     name = "harvester"
+    requires_network = True
     accepts = frozenset({"domain"})
     web_opt_in = True
     web_label = "theHarvester"

@@ -1,7 +1,7 @@
 import asyncio
 from unittest.mock import Mock
 
-from textual.widgets import DataTable, Input, Static
+from textual.widgets import DataTable, Input, SelectionList, Static
 
 from osint_tool import tui
 from osint_tool.models import Finding, ModuleResult, Relation, Report, Status, Target
@@ -76,9 +76,23 @@ def test_formulario_valida_y_avanza_a_modulos() -> None:
             app.switch_screen(TargetScreen())
             await pilot.pause()
             app.screen.query_one("#domain", Input).value = "EJEMPLO.COM"
+            app.screen.query_one("#phone", Input).value = "020 7946 0018"
+            app.screen.query_one("#phone_region", Input).value = "GB"
             await pilot.click("#next")
             await pilot.pause()
             assert isinstance(app.screen, ModulesScreen)
+            assert app.screen._target.phone == "+442079460018"
+
+    asyncio.run(scenario())
+
+
+def test_modulos_de_red_no_se_seleccionan_automaticamente() -> None:
+    async def scenario() -> None:
+        app = OsintApp()
+        async with app.run_test(size=(100, 40)) as pilot:
+            app.switch_screen(ModulesScreen(Target(domain="example.test")))
+            await pilot.pause()
+            assert app.screen.query_one(SelectionList).selected == []
 
     asyncio.run(scenario())
 

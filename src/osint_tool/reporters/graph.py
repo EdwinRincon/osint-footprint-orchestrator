@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import shutil
 from collections import defaultdict
-from collections.abc import Callable
 from pathlib import Path
 from typing import TypedDict
 from urllib.parse import urlsplit

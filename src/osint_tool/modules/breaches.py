@@ -28,7 +28,7 @@ from osint_tool.models import (
     SourceCheckStatus,
     Target,
 )
-from osint_tool.registry import ModuleSkipped, register
+from osint_tool.registry import register
 
 logger = logging.getLogger(__name__)
 
@@ -141,9 +141,13 @@ class BreachesModule:
     """Indica en qué brechas conocidas aparece un email y qué datos expuso cada una."""
 
     name = "breaches"
+    requires_network = True
     accepts = frozenset({"email"})
     web_label = "Brechas conocidas"
-    web_description = "Consulta XposedOrNot para brechas asociadas al email proporcionado."
+    web_description = (
+        "El correo se envía a XposedOrNot. Límite gratuito: "
+        "2 solicitudes/s, 25/hora y 100/día por endpoint."
+    )
 
     # La inyección mantiene las pruebas deterministas y evita depender de la red real.
     def __init__(
@@ -163,7 +167,15 @@ class BreachesModule:
         response = self._session.get(self._build_url(self._settings.breaches_api_url, target.email))
 
         if response.status_code == HTTPStatus.TOO_MANY_REQUESTS:
-            raise ModuleSkipped("XposedOrNot: límite de uso alcanzado, inténtalo más tarde")
+            return ModuleOutput(
+                source_checks=[
+                    _source_check(
+                        SOURCE,
+                        SourceCheckStatus.INCONCLUSIVE,
+                        "HTTP 429 (límite de uso)",
+                    )
+                ]
+            )
         if response.status_code == HTTPStatus.NOT_FOUND:  # sin datos para este email
             return self._not_found(response.status_code)
         response.raise_for_status()  # otros errores HTTP: los gestiona el servicio

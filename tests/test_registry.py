@@ -6,6 +6,7 @@ from osint_tool.registry import (
     UnknownModuleError,
     applicable_modules,
     register,
+    web_network_modules,
     web_optional_modules,
 )
 
@@ -66,3 +67,12 @@ def test_modulos_web_opcionales_se_declaran_en_el_modulo() -> None:
     register(module)
 
     assert web_optional_modules() == [("external_tool", "External Tool")]
+
+
+def test_modulos_de_red_se_declaran_para_opt_in() -> None:
+    module = _fake("network_source", {"email"})
+    module.requires_network = True
+    module.web_label = "Network Source"
+    register(module)
+
+    assert web_network_modules() == [("network_source", "Network Source")]

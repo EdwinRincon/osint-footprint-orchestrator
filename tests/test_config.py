@@ -18,7 +18,6 @@ VARS = (
     "OSINT_OUTPUT_DIR",
     "OSINT_HARVESTER_SOURCES",
     "OSINT_WMN_FILE",
-    "OSINT_WMN_CATEGORIES",
     "OSINT_WMN_UPDATE_URL",
     "OSINT_BREACHES_API_URL",
     "OSINT_BREACHES_ANALYTICS_URL",
@@ -75,11 +74,6 @@ def test_ruta_del_dataset_se_puede_cambiar(monkeypatch: pytest.MonkeyPatch) -> N
 def test_ruta_vacia_equivale_al_valor_por_defecto(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OSINT_WMN_FILE", "   ")
     assert load_settings().wmn_file == DEFAULT_WMN_FILE
-
-
-def test_categorias_se_separan_por_comas(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OSINT_WMN_CATEGORIES", "social, coding ,")
-    assert load_settings().wmn_categories == frozenset({"social", "coding"})
 
 
 def test_urls_personalizadas_https(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -6,7 +6,6 @@ import requests
 from osint_tool.config import Settings
 from osint_tool.models import SourceCheckStatus, Target
 from osint_tool.modules.breaches import BreachesModule
-from osint_tool.registry import ModuleSkipped
 
 EMAIL = "ana@ejemplo.com"
 TARGET = Target(email=EMAIL)
@@ -147,12 +146,15 @@ def test_cuerpo_not_found_es_sin_hallazgos_y_no_consulta_el_detalle() -> None:
     assert session.urls == [BASIC_URL]
 
 
-def test_429_omite_el_modulo() -> None:
+def test_429_es_inconcluso_y_no_se_confunde_con_sin_hallazgos() -> None:
     module, session = _module(FakeResponse(429))
 
-    with pytest.raises(ModuleSkipped):
-        module.run(TARGET)
+    output = module.run(TARGET)
 
+    assert output.findings == []
+    assert len(output.source_checks) == 1
+    assert output.source_checks[0].status is SourceCheckStatus.INCONCLUSIVE
+    assert output.source_checks[0].detail == "HTTP 429 (límite de uso)"
     assert session.urls == [BASIC_URL]
 
 

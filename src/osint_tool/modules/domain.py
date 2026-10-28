@@ -73,6 +73,7 @@ class DomainModule:
     """Registros DNS (A, AAAA, MX, NS, TXT) y datos WHOIS de un dominio."""
 
     name = "domain"
+    requires_network = True
     accepts = frozenset({"domain"})
     web_label = "DNS y WHOIS"
     web_description = "Consulta registros DNS (A, AAAA, MX, NS, TXT) y datos públicos WHOIS."

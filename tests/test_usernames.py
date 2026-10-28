@@ -51,7 +51,6 @@ class FakeSession:
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ningún test depende de las variables WMN del entorno de quien lo ejecuta."""
     monkeypatch.delenv("OSINT_WMN_FILE", raising=False)
-    monkeypatch.delenv("OSINT_WMN_CATEGORIES", raising=False)
 
 
 def _module(
@@ -230,7 +229,6 @@ def test_carga_wmn_y_filtra_entradas(tmp_path: Path) -> None:
     assert sites[0].url == "https://b.test/{username}"
     assert sites[0].pretty_url == "https://b.test/u/{username}"
     assert sites[0].e_string == "ok"
-    assert [s.name for s in load_wmn_sites(path, frozenset({"music"}))] == ["Otra"]
 
 
 def test_carga_cientos_de_sitios_desde_el_dataset(tmp_path: Path) -> None:
@@ -262,6 +260,29 @@ def test_sitios_por_defecto_vienen_del_dataset_configurado(tmp_path: Path) -> No
     sites = default_sites(Settings(wmn_file=_wmn_file(tmp_path)))
 
     assert [s.name for s in sites] == ["Bueno", "Otra"]
+
+
+def test_dataset_excluye_nsfw_de_forma_consistente(tmp_path: Path) -> None:
+    path = _wmn_file(tmp_path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["sites"].append(
+        {
+            "name": "Adulto",
+            "uri_check": "https://adult.test/{account}",
+            "cat": "xx NSFW xx",
+            "e_code": 200,
+            "e_string": "yes",
+            "m_code": 404,
+            "m_string": "no",
+        }
+    )
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    loaded_sites = load_wmn_sites(path)
+    default_sites_result = default_sites(Settings(wmn_file=path))
+
+    assert [site.name for site in loaded_sites] == ["Bueno", "Otra"]
+    assert [site.name for site in default_sites_result] == ["Bueno", "Otra"]
 
 
 def test_sin_dataset_se_omite_con_un_mensaje_claro(tmp_path: Path) -> None:
@@ -297,18 +318,6 @@ def test_el_modulo_usa_el_dataset_del_entorno(
 
     assert [f.value for f in output.findings] == ["https://b.test/u/ana_perez"]
     assert [check.source for check in output.source_checks] == ["Bueno", "Otra"]
-
-
-def test_el_filtro_de_categorias_del_entorno_llega_al_modulo(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("OSINT_WMN_FILE", str(_wmn_file(tmp_path)))
-    monkeypatch.setenv("OSINT_WMN_CATEGORIES", "music")
-    module, session = _module({"https://o.test/ana_perez": (404, "no")}, sites=None)
-
-    module.run(TARGET)
-
-    assert [url for url, _ in session.calls] == ["https://o.test/ana_perez"]
 
 
 def test_resumen_de_sitios_inconclusos_sin_datos_personales(

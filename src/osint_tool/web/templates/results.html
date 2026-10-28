@@ -58,6 +58,8 @@
     :focus-visible { outline: 3px solid #17695e; outline-offset: 2px; }
     .table-wrap { margin-top: 1rem; overflow-x: auto; border: 1px solid #dce6e3;
                   border-radius: 9px; overscroll-behavior-inline: contain; }
+    .table-wrap:focus-visible { outline: 3px solid #17695e; outline-offset: 2px; }
+    .table-scroll-hint { display: none; margin: .4rem 0; color: #5e6d69; font-size: .82rem; }
     table { width: 100%; border-collapse: collapse; font-size: .95rem; }
     .findings-table { min-width: 68rem; }
     .checks-table { min-width: 48rem; }
@@ -86,6 +88,7 @@
     @media (max-width: 600px) {
       body { padding: 1.5rem .75rem; }
       th, td { padding: .65rem .7rem; }
+      .table-scroll-hint { display: block; }
     }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important;
@@ -161,7 +164,8 @@
         <section class="result-section" aria-labelledby="findings-title">
           <h3 id="findings-title">Hallazgos observados</h3>
           <p id="findings-count" class="muted" aria-live="polite"></p>
-          <div class="table-wrap">
+          <p class="table-scroll-hint">Desliza la tabla horizontalmente para ver todos los datos.</p>
+          <div class="table-wrap" tabindex="0" role="region" aria-label="Tabla de hallazgos; desplazamiento horizontal">
             <table class="findings-table">
               <thead><tr><th>Módulo</th><th>Tipo</th><th>Valor observado</th>
                 <th>Fuente</th><th>Detalle</th><th>Confianza heurística</th></tr></thead>
@@ -178,7 +182,8 @@
         <section class="result-section" aria-labelledby="checks-title">
           <h3 id="checks-title">Cobertura por fuente</h3>
           <p id="filter-count" class="muted" aria-live="polite"></p>
-          <div class="table-wrap">
+          <p class="table-scroll-hint">Desliza la tabla horizontalmente para ver todos los datos.</p>
+          <div class="table-wrap" tabindex="0" role="region" aria-label="Tabla de cobertura; desplazamiento horizontal">
             <table class="checks-table">
               <thead><tr><th>Módulo</th><th>Fuente / sitio</th><th>Estado</th><th>Detalle</th></tr></thead>
               <tbody id="checks-body"></tbody>
@@ -194,7 +199,8 @@
           <p class="muted">Son hipótesis basadas en las fuentes listadas; no demuestran que los
             perfiles pertenezcan a la misma persona.</p>
           <p id="relations-count" class="muted" aria-live="polite"></p>
-          <div class="table-wrap">
+          <p class="table-scroll-hint">Desliza la tabla horizontalmente para ver todos los datos.</p>
+          <div class="table-wrap" tabindex="0" role="region" aria-label="Tabla de relaciones; desplazamiento horizontal">
             <table class="relations-table">
               <thead><tr><th>Origen</th><th>Destino</th><th>Relación</th>
                 <th>Evidencia</th><th>Confianza heurística</th></tr></thead>
