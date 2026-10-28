@@ -42,11 +42,11 @@ def test_sin_datos_falla() -> None:
         ("domain", "-malo.com"),
         ("domain", "a..com"),
         ("username", "con espacios"),
-        ("username", "x" * 33),
+        ("username", "x" * 40),
         ("username", "-rf"),
         ("username", ".."),
         ("username", ".oculto"),
-        ("phone", "600000000"),
+        ("phone", "642775948"),
         ("phone", "+0123456"),
         ("name", "Ana123"),
         ("name", "<script>"),
@@ -96,10 +96,63 @@ def test_nombre_con_acentos_descompuestos_se_normaliza() -> None:
     assert validate_name("José  Pérez") == validate_name("Jose\u0301  Pe\u0301rez")
 
 
-@pytest.mark.parametrize("value", ["ana", "_ana", "ana.perez-99", "7ana"])
+@pytest.mark.parametrize("value", ["ana", "_ana", "ana.perez-99", "7ana", "a" * 39])
 def test_username_valido_se_acepta(value: str) -> None:
     assert validate_username(value) == value
 
 
+def test_username_de_mas_de_39_caracteres_se_rechaza() -> None:
+    with pytest.raises(ValidationError):
+        validate_username("a" * 40)
+
+
 def test_telefono_se_normaliza_a_e164() -> None:
     assert validate_phone("+34 600 000-000") == "+34600000000"
+
+
+def test_telefono_nacional_espanol_se_normaliza_a_e164() -> None:
+    assert validate_phone("642775948", "ES") == "+34642775948"
+
+
+@pytest.mark.parametrize(
+    ("value", "region", "expected"),
+    [
+        ("202 555 0123", "US", "+12025550123"),
+        ("020 7946 0018", "GB", "+442079460018"),
+        ("300 123 4567", "CO", "+573001234567"),
+        ("90 1234 5678", "JP", "+819012345678"),
+    ],
+)
+def test_telefonos_nacionales_se_normalizan_segun_su_region(
+    value: str, region: str, expected: str
+) -> None:
+    assert validate_phone(value, region) == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["+34642775948", "+14155552671", "+442079460018", "+573001234567"],
+)
+def test_telefonos_internacionales_validos_de_distintos_paises(value: str) -> None:
+    assert validate_phone(value) == value
+
+
+def test_numero_nacional_sin_region_se_rechaza() -> None:
+    with pytest.raises(ValidationError):
+        validate_phone("642775948")
+
+
+def test_region_de_telefono_invalida_se_rechaza() -> None:
+    with pytest.raises(ValidationError):
+        validate_phone("2025550123", "ZZ")
+
+
+def test_region_no_se_acepta_sin_numero() -> None:
+    with pytest.raises(ValidationError):
+        build_target(phone_region="US")
+
+
+def test_build_target_usa_region_solo_para_normalizar_el_telefono() -> None:
+    target = build_target(phone="2025550123", phone_region="US")
+    assert target.phone == "+12025550123"
+    assert target.to_dict() == {"phone": "+12025550123"}
