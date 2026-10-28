@@ -56,7 +56,8 @@ FIELDS = {
     "email": "Correo electrónico",
     "username": "Nombre de usuario",
     "domain": "Dominio (ejemplo.com)",
-    "phone": "Teléfono internacional (+34600000000)",
+    "phone": "Teléfono (E.164 o número nacional)",
+    "phone_region": "Región del teléfono (ISO, p. ej. US, GB, CO)",
     "name": "Nombre de persona",
 }
 STATUS_STYLES = {Status.OK: "green", Status.SKIPPED: "yellow", Status.ERROR: "red"}
@@ -149,12 +150,25 @@ class TargetScreen(FlowScreen):
                 username=values["username"],
                 domain=values["domain"],
                 phone=values["phone"],
+                phone_region=values["phone_region"],
                 name=values["name"],
             )
         except ValidationError as exc:
             self.query_one("#error", Static).update(Text(str(exc), style="bold yellow"))
             return
         self.app.switch_screen(ModulesScreen(target))
+
+
+def _module_selection(module: Module, provided: frozenset[str]) -> Selection[str]:
+    network = getattr(module, "requires_network", False)
+    source_kind = "externa; opt-in" if network else "local"
+    accepted_inputs = ", ".join(sorted(module.accepts & provided))
+    label = getattr(module, "web_label", module.name)
+    return Selection(
+        f"{label} [{source_kind}] ({accepted_inputs})",
+        module.name,
+        not network,
+    )
 
 
 class ModulesScreen(FlowScreen):
@@ -170,18 +184,37 @@ class ModulesScreen(FlowScreen):
         yield Header()
         yield Label("Módulos (espacio para marcar/desmarcar)")
         if modules:
-            yield SelectionList[str](
-                *(
-                    Selection(
-                        f"{module.name} ({', '.join(sorted(module.accepts & provided))})",
-                        module.name,
-                        True,
-                    )
-                    for module in modules
+            yield Static(
+                "Las fuentes externas están desactivadas inicialmente. Seleccionarlas permite "
+                "consultas de red que envían los datos pertinentes a terceros."
+            )
+            if any(module.name == "breaches" for module in modules):
+                yield Static(
+                    "Brechas conocidas envía el correo a XposedOrNot "
+                    "(2 solicitudes/s, 25/hora, 100/día por endpoint)."
                 )
+            if any(module.name == "github_name" for module in modules):
+                yield Static(
+                    "Perfiles de GitHub por nombre envía el nombre a GitHub "
+                    "(máximo 10 búsquedas/minuto sin autenticación)."
+                )
+            if any(module.name == "github_profile" for module in modules):
+                yield Static(
+                    "Perfil de GitHub por username envía el username a GitHub "
+                    "(máximo 60 solicitudes/hora sin autenticación)."
+                )
+            if any(module.name == "usernames" for module in modules):
+                yield Static(
+                    "WhatsMyName excluye siempre los sitios de categoría NSFW."
+                )
+            yield SelectionList[str](
+                *(_module_selection(module, provided) for module in modules)
             )
         else:
-            yield Static("No hay módulos disponibles para los datos indicados.")
+            yield Static(
+                "No hay fuentes disponibles para estos datos; "
+                "no se inició ninguna consulta."
+            )
         with Horizontal():
             yield Button("Iniciar consultas", id="start", variant="success", disabled=not modules)
             yield Button("Cancelar", id="cancel", variant="error")
