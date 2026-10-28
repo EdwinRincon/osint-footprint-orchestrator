@@ -10,6 +10,7 @@ eso los hallazgos llevan confianza baja y el correlador los trata como hipótesi
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 from collections.abc import Callable, Sequence
@@ -17,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import requests
 
@@ -91,11 +92,47 @@ def _is_checkable(entry: Any) -> bool:
     return entry.get("cat") != NSFW_CATEGORY
 
 
+# Una plantilla no confiable no debe dirigir las consultas a equipos locales o internos.
+def _is_public_https(template: str) -> bool:
+    """True si la plantilla es https y su host no es local ni una IP no pública."""
+    try:
+        parts = urlsplit(template.replace(WMN_PLACEHOLDER, "x"))
+        host = (parts.hostname or "").rstrip(".").lower()
+    except ValueError:
+        return False
+    if parts.scheme != "https" or not host:
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return _is_public_hostname(host)
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return ip.is_global
+
+
+def _is_public_hostname(host: str) -> bool:
+    # Sin punto cubre "localhost" e IP decimales; un TLD nunca empieza por dígito (127.1, 0x7f.1).
+    if "." not in host or host.endswith(".localhost"):
+        return False
+    return not host.rsplit(".", 1)[1][:1].isdigit()
+
+
+def _is_unsafe_template(entry: dict[str, Any]) -> bool:
+    uri = entry.get("uri_check")
+    return isinstance(uri, str) and WMN_PLACEHOLDER in uri and not _is_public_https(uri)
+
+
 # Exigir plantillas esenciales evita consultas incompletas contra URLs arbitrarias.
 def _to_site(entry: dict[str, Any]) -> Site | None:
-    """Convierte una entrada WhatsMyName en `Site`; None si le faltan datos esenciales."""
+    """Convierte una entrada WhatsMyName en `Site`; None si faltan datos o la URL es insegura."""
     name, uri = entry.get("name"), entry.get("uri_check")
-    if not isinstance(name, str) or not isinstance(uri, str) or WMN_PLACEHOLDER not in uri:
+    if (
+        not isinstance(name, str)
+        or not isinstance(uri, str)
+        or WMN_PLACEHOLDER not in uri
+        or not _is_public_https(uri)
+    ):
         return None
     pretty = entry.get("uri_pretty")
     return Site(
@@ -119,15 +156,19 @@ def load_wmn_sites(path: Path) -> list[Site]:
     """Lee el dataset WhatsMyName y devuelve los sitios que se pueden comprobar.
 
     Se omiten entradas NSFW, con POST, marcadas como no válidas o con protecciones
-    anti-automatización (captcha, Cloudflare...).
+    anti-automatización (captcha, Cloudflare...), y las plantillas que no son https
+    con host público.
 
     Raises:
         OSError: si el fichero no se puede leer.
         ValueError: si no es un JSON con la lista `sites`.
     """
-    candidates = (_to_site(entry) for entry in _read_wmn_entries(path) if _is_checkable(entry))
-    sites = [site for site in candidates if site is not None]
+    checkable = [entry for entry in _read_wmn_entries(path) if _is_checkable(entry)]
+    discarded = sum(1 for entry in checkable if _is_unsafe_template(entry))
+    sites = [site for site in (_to_site(entry) for entry in checkable) if site is not None]
     logger.info("Sitios cargados de %s: %d", path.name, len(sites))
+    if discarded:
+        logger.info("Plantillas descartadas por no ser https con host público: %d", discarded)
     return sites
 
 

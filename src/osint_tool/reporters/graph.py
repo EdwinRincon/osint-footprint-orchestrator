@@ -112,7 +112,7 @@ def _cytoscape_graph_data(report: Report) -> CytoscapeGraphData:
             group_confidence = sum(
                 relation.confidence for _, relation in relations
             ) / len(relations)
-            group = {
+            group: dict[str, object] = {
                 "data": {
                     "id": group_id,
                     "kind": "group",

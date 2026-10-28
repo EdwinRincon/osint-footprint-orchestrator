@@ -106,7 +106,7 @@ class PhoneModule:
         try:
             number = _parse_valid(target.phone)
         except ModuleSkipped:
-            logger.info("Número de teléfono ignorado: %s", target.phone)
+            logger.info("Número de teléfono ignorado")
             return []
 
         candidates = (

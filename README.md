@@ -15,6 +15,19 @@ source .venv/Scripts/activate    # Windows (Git Bash)
 pip install -e ".[dev]"
 ```
 
+## Dependencias
+
+Las dependencias del proyecto no están fijadas por versión exacta. Para revisar avisos de
+vulnerabilidades, instala `pip-audit` en un entorno aparte (no es una dependencia del proyecto) y
+ejecuta, indicando el `site-packages` del entorno del proyecto:
+
+```bash
+pip-audit --path .venv/Lib/site-packages   # ejemplo (Windows); en Linux/macOS la ruta suele ser .venv/lib/python3.X/site-packages
+```
+
+El aviso PYSEC-2026-4320 (CA comprometidas en `certifi` anterior a 2026.10.18) se corrige en
+tu entorno con `pip install "certifi>=2026.10.19"`; no está fijado en `pyproject.toml`.
+
 ## Uso en terminal
 
 Inicia la interfaz interactiva de pantalla completa:
@@ -75,3 +88,29 @@ recoge los identificadores que el perfil declara: web, cuenta de Twitter/X y ema
 pivotes unen perfiles en el grafo (por ejemplo, un perfil de `x.com/ana` con la cuenta de Twitter
 declarada en GitHub). Son pistas declaradas, no prueba de identidad; el email público queda en el
 grafo y en `report.json`.
+
+## Limitaciones de seguridad
+
+El dataset WhatsMyName (`OSINT_WMN_FILE`) se trata como entrada no confiable. Para reducir el
+riesgo, solo se usan plantillas `https` con host público y se descartan las de `localhost`, IP
+literales privadas, loopback o link-local y otros esquemas. Al cargar el dataset se registra
+(nivel INFO) cuántas plantillas se descartaron, sin sus URLs.
+No se comprueba a qué IP resuelve un nombre de host: un host público
+cuyo DNS apunte a una IP privada (o un cambio de DNS entre comprobación y consulta) no se detecta.
+
+Si el dataset falta o no se puede leer, el índice de cuentas se reduce a los alias integrados y se
+registra un aviso local (WARNING) con solo el tipo de error, sin rutas. El informe
+(`report.json` y HTML) no cambia por ello. El aviso puede repetirse varias veces por búsqueda.
+
+Los números de teléfono no válidos ya no se escriben en los logs.
+
+## Estado del proyecto
+
+El proyecto está cerrado a nuevas funcionalidades. Limitaciones conocidas:
+
+- Los handles de cuenta se normalizan a minúsculas, así que dos cuentas que solo difieren en
+  mayúsculas se tratan como la misma.
+- El índice de cuentas solo usa las plantillas WhatsMyName donde la cuenta es el último segmento
+  de la ruta; el resto no se reconoce al correlacionar URLs.
+- Un host público que resuelva a una IP privada no se detecta (ver arriba).
+- El email público de GitHub aparece en claro en el grafo y en `report.json`.
