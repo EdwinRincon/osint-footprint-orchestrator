@@ -10,6 +10,15 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from osint_tool.models import Finding, Relation, Target
+from osint_tool.pivots import (
+    KIND_ACCOUNT,
+    KIND_EMAIL,
+    KIND_GRAVATAR,
+    KIND_WEBSITE,
+    AccountIndex,
+    Pivot,
+    canonical_account,
+)
 
 INPUT_SOURCE = "input"  # relaciones deducidas de los datos aportados, no de una fuente
 TEXT_MATCH_CONFIDENCE = 1.0  # la coincidencia textual es un hecho; que haya titularidad, no
@@ -45,6 +54,21 @@ RULES: dict[str, Rule] = {
     "phone_region": Rule("phone", "region", "región"),
     "phone_line_type": Rule("phone", "line_type", "tipo de línea"),
     "phone_carrier": Rule("phone", "carrier", "operador"),
+    # Mismo tipo de nodo que "profile": un perfil de GitHub hallado por ambos módulos se fusiona.
+    "github_profile": Rule("username", "profile", "perfil observado en {source}"),
+}
+
+PIVOT_DECLARED_CONFIDENCE = 0.6  # el perfil lo declara, pero no prueba que sea la misma persona
+PIVOT_WEAK_CONFIDENCE = 0.3  # coincidencia de identificador sin declaración explícita
+CANONICAL_SOURCE = "normalización de URL"  # evidencia de una coincidencia de URL canónica
+# El puente depende de la declaración del perfil: no puede ser más fuerte que ella.
+CANONICAL_URL_CONFIDENCE = PIVOT_DECLARED_CONFIDENCE
+CANONICAL_URL_LABEL = "misma cuenta según la URL canónica"
+PIVOT_LABELS: dict[str, str] = {
+    KIND_ACCOUNT: "cuenta enlazada en el perfil",
+    KIND_WEBSITE: "web declarada en el perfil",
+    KIND_EMAIL: "email público del perfil",
+    KIND_GRAVATAR: "identificador Gravatar del perfil",
 }
 
 
@@ -120,13 +144,73 @@ def _link_findings(fields: dict[str, str], findings: Iterable[Finding], edges: _
         )
 
 
+# Los pivotes parten de un perfil, no del Target, así que no encajan en RULES.
+def _finding_pivots(finding: Finding) -> list[Pivot]:
+    raw = finding.raw.get("pivots")
+    if not isinstance(raw, list):
+        return []
+    return [pivot for item in raw if (pivot := Pivot.from_dict(item)) is not None]
+
+
+# Dos perfiles con el mismo pivote comparten nodo, así quedan unidos en el grafo.
+def _link_declared_pivots(findings: Iterable[Finding], edges: _Edges) -> set[str]:
+    """Enlaza cada perfil con los identificadores que declara y devuelve las cuentas declaradas."""
+    declared_accounts: set[str] = set()
+    for finding in findings:
+        profile = node_id("profile", finding.value)
+        for pivot in _finding_pivots(finding):
+            confidence = PIVOT_DECLARED_CONFIDENCE if pivot.explicit else PIVOT_WEAK_CONFIDENCE
+            if pivot.kind == KIND_ACCOUNT:
+                declared_accounts.add(pivot.value)
+            _add_edge(
+                edges,
+                profile,
+                node_id(pivot.kind, pivot.value),
+                PIVOT_LABELS[pivot.kind],
+                finding.source,
+                confidence,
+            )
+    return declared_accounts
+
+
+# twitter.com/ana y x.com/ana son la misma cuenta: se une el perfil al nodo declarado.
+def _link_canonical_profiles(
+    findings: Iterable[Finding],
+    declared_accounts: set[str],
+    edges: _Edges,
+    accounts: AccountIndex | None,
+) -> None:
+    """Une los perfiles cuya URL canónica coincide con una cuenta declarada (hipótesis)."""
+    for finding in findings:
+        account = (
+            canonical_account(finding.value, index=accounts) if finding.type == "profile" else None
+        )
+        if account is not None and account in declared_accounts:
+            _add_edge(
+                edges,
+                node_id("profile", finding.value),
+                node_id(KIND_ACCOUNT, account),
+                CANONICAL_URL_LABEL,
+                CANONICAL_SOURCE,
+                CANONICAL_URL_CONFIDENCE,
+            )
+
 # Mantener reglas y agregación separadas permite revisar cada hipótesis de enlace.
-def correlate(target: Target, findings: Iterable[Finding]) -> list[Relation]:
-    """Genera las relaciones entre las entidades del Target y los hallazgos."""
+def correlate(
+    target: Target, findings: Iterable[Finding], accounts: AccountIndex | None = None
+) -> list[Relation]:
+    """Genera las relaciones entre las entidades del Target y los hallazgos.
+
+    `accounts` es el índice de plataformas para reconocer cuentas por URL; sin él se usan
+    solo los alias integrados.
+    """
+    findings = list(findings)
     fields = target.to_dict()  # campo -> valor, solo los informados
     edges: _Edges = {}
     _link_email_to_domain(fields, edges)
     _link_findings(fields, findings, edges)
+    declared_accounts = _link_declared_pivots(findings, edges)
+    _link_canonical_profiles(findings, declared_accounts, edges, accounts)
     return [
         Relation(
             source=src,
