@@ -13,3 +13,27 @@ export OSINT_HIBP_API_KEY="tu-clave-api"
 Sin clave, el módulo no realiza consultas de red y registra cobertura `not_configured`. Nunca usa
 resultados simulados o de ejemplo. HTTP 404 significa que no se informó de brechas; HTTP 429 es
 inconcluso y los demás errores HTTP, de red o de formato de respuesta se registran como errores.
+
+## Sesiones y pivotes
+
+Las investigaciones interactivas de Textual se guardan como sesiones locales bajo
+`OSINT_OUTPUT_DIR/sessions/`. Cada sesión mantiene los informes de sus entradas y un grafo en
+`session.json`. Los informes de sesión omiten los payloads `raw`, redactan claves detectables y
+no guardan URLs de petición; las URLs de fuente se conservan sin query ni fragmento. Los ficheros
+usan los permisos normales de los informes. La interfaz web no expone estas carpetas; la gestión
+de sesiones está disponible en Textual. Desde la pantalla de sesión o el menú de sesiones locales
+se pueden eliminar una sesión y sus informes.
+
+Solo se ofrecen valores exactos de hallazgos que pasan al menos un validador actual para los tipos
+de objetivo admitidos. Si un valor pasa para más de un tipo, cada tipo aparece como una opción
+separada; no se extraen nombres de usuario de URLs ni se derivan dominios o partes de correos.
+Antes de ejecutar cada nuevo objetivo, la interfaz muestra la evidencia, la fuente, los módulos y
+los destinatarios externos. La confirmación empieza desmarcada y no se ejecuta nada sin una
+aceptación explícita. Los módulos de red siguen desactivados por defecto.
+
+El límite máximo por sesión es profundidad 2 y 10 objetivos, contando el inicial. Se pueden reducir
+localmente con `OSINT_SESSION_MAX_DEPTH` (0–2) y `OSINT_SESSION_MAX_TARGETS` (1–10); valores
+superiores a esos máximos se rechazan. Los objetivos repetidos se detectan tras normalizar tipo,
+mayúsculas/minúsculas, espacios y formato telefónico. Una entrada fallida queda marcada en el grafo
+y no borra los resultados anteriores. Cada arista se etiqueta como hipótesis no verificada, no como
+una identidad confirmada.

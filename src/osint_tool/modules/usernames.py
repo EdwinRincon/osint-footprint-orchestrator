@@ -259,6 +259,15 @@ class UsernamesModule:
         # El callback se cambia por investigación para no retener estado entre ejecuciones.
         self._progress_callback = callback
 
+    def third_party_recipients(self) -> tuple[str, ...]:
+        """Sites that will receive the username, using the same filtered dataset as the scan."""
+        sites = self._sites if self._sites is not None else default_sites(load_settings())
+        recipients = {
+            f"{site.name} ({urlsplit(site.url).hostname or 'host no disponible'})"
+            for site in sites
+        }
+        return tuple(sorted(recipients))
+
     # Acotar concurrencia y preservar el orden produce progreso útil e informes deterministas.
     def run(self, target: Target) -> ModuleOutput:
         if not target.username:

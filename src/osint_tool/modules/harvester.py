@@ -160,6 +160,10 @@ class HarvesterModule:
             return parse_sources(self._sources)
         return load_settings().harvester_sources
 
+    def third_party_recipients(self) -> tuple[str, ...]:
+        """Providers configurados que recibirán el dominio."""
+        return tuple(f"theHarvester: {source}" for source in self._resolve_sources().split(","))
+
     # Aislar los ficheros temporales evita colisiones y residuos entre investigaciones.
     def run(self, target: Target) -> list[Finding]:
         if not target.domain:

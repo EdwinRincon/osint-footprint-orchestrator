@@ -23,6 +23,8 @@ VARS = (
     "OSINT_BREACHES_ANALYTICS_URL",
     "OSINT_BREACHES_REFERENCE_URL",
     "OSINT_HIBP_API_KEY",
+    "OSINT_SESSION_MAX_DEPTH",
+    "OSINT_SESSION_MAX_TARGETS",
 )
 EMAIL_TEMPLATE_VARS = ["OSINT_BREACHES_API_URL", "OSINT_BREACHES_ANALYTICS_URL"]
 
@@ -43,6 +45,7 @@ def test_valores_por_defecto() -> None:
     assert settings.breaches_analytics_url == DEFAULT_BREACHES_ANALYTICS_URL
     assert settings.breaches_reference_url == DEFAULT_BREACHES_REFERENCE_URL
     assert settings.hibp_api_key is None
+    assert (settings.session_max_depth, settings.session_max_targets) == (2, 10)
 
 
 def test_api_key_hibp_se_normaliza(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -146,3 +149,28 @@ def test_numeros_validos_se_leen(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OSINT_CLI_TIMEOUT", "120")
     settings = load_settings()
     assert (settings.http_timeout, settings.http_retries, settings.cli_timeout) == (3.5, 0, 120)
+
+
+def test_limites_de_sesion_se_pueden_reducir(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OSINT_SESSION_MAX_DEPTH", "1")
+    monkeypatch.setenv("OSINT_SESSION_MAX_TARGETS", "4")
+    settings = load_settings()
+    assert (settings.session_max_depth, settings.session_max_targets) == (1, 4)
+
+
+@pytest.mark.parametrize(
+    ("variable", "value"),
+    [
+        ("OSINT_SESSION_MAX_DEPTH", "3"),
+        ("OSINT_SESSION_MAX_DEPTH", "-1"),
+        ("OSINT_SESSION_MAX_TARGETS", "11"),
+        ("OSINT_SESSION_MAX_TARGETS", "0"),
+        ("OSINT_SESSION_MAX_TARGETS", "many"),
+    ],
+)
+def test_limites_de_sesion_invalidos_fallan(
+    monkeypatch: pytest.MonkeyPatch, variable: str, value: str
+) -> None:
+    monkeypatch.setenv(variable, value)
+    with pytest.raises(ConfigError):
+        load_settings()

@@ -91,6 +91,15 @@ class DomainModule:
         self._resolver = resolver
         self._whois = whois_lookup or _default_whois
 
+    def third_party_recipients(self) -> tuple[str, ...]:
+        """Resolver addresses and registry endpoint class that receive the domain."""
+        recipients = [
+            f"resolvedor DNS {nameserver}"
+            for nameserver in getattr(self._resolver, "nameservers", ())
+        ]
+        recipients.append("servidor WHOIS determinado por el TLD del dominio")
+        return tuple(recipients)
+
     # Devolver ambas coberturas permite distinguir consultas vacías de fuentes sin respuesta.
     def run(self, target: Target) -> ModuleOutput:
         if not target.domain:

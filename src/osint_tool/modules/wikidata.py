@@ -35,6 +35,7 @@ class WikidataModule:
         "Envía el nombre a Wikidata y muestra hasta cinco coincidencias públicas; "
         "pueden no ser personas y no confirman identidad."
     )
+    third_party_recipients = ("Wikidata",)
 
     def __init__(self, session: requests.Session | None = None) -> None:
         self._session = build_session() if session is None else session

@@ -17,6 +17,7 @@ from textual.containers import Horizontal
 from textual.screen import Screen
 from textual.widgets import (
     Button,
+    Checkbox,
     DataTable,
     Footer,
     Header,
@@ -34,10 +35,24 @@ from werkzeug.serving import BaseWSGIServer, make_server
 
 from osint_tool.config import ConfigError, load_settings
 from osint_tool.models import ModuleResult, Report, SourceCheckStatus, Status, Target
-from osint_tool.registry import Module, all_modules, applicable_modules
+from osint_tool.registry import Module, ModuleSkipped, all_modules, applicable_modules
 from osint_tool.reporters import write_reports
 from osint_tool.reporters.base import LEGAL_NOTICE
 from osint_tool.service import run_investigation
+from osint_tool.sessions import (
+    EDGE_LABEL,
+    EntryStatus,
+    InvestigationSession,
+    PivotChoice,
+    SavedSession,
+    SessionError,
+    delete_saved_session,
+    list_saved_sessions,
+    network_recipients,
+    safe_evidence_text,
+    safe_report,
+    safe_source_url,
+)
 from osint_tool.validation import ValidationError, build_target
 from osint_tool.web.app import HOST, PORT, create_app
 
@@ -93,12 +108,23 @@ class MenuScreen(Screen[None]):
         yield Header()
         yield Static(Panel(Text(BANNER, style="bold cyan"), border_style="magenta"))
         yield Label("¿Qué quieres hacer?")
-        yield OptionList(
+        options = [
             Option("Iniciar una investigación", id="scan"),
             Option("Ver módulos disponibles", id="modules"),
             Option("Abrir sitio web", id="website"),
-            Option("Salir", id="exit"),
-        )
+        ]
+        if (
+            isinstance(self.app, OsintApp)
+            and self.app.current_session is not None
+            and all(
+                entry.status is not EntryStatus.RUNNING
+                for entry in self.app.current_session.entries
+            )
+        ):
+            options.append(Option("Continuar sesión actual", id="session"))
+        options.append(Option("Administrar sesiones locales", id="manage-sessions"))
+        options.append(Option("Salir", id="exit"))
+        yield OptionList(*options)
         yield Static(LEGAL_NOTICE)
         yield Footer()
 
@@ -111,6 +137,16 @@ class MenuScreen(Screen[None]):
         elif event.option_id == "website":
             if isinstance(self.app, OsintApp):
                 self.app.open_website()
+        elif event.option_id == "session" and isinstance(self.app, OsintApp):
+            if self.app.current_session is not None:
+                self.app.switch_screen(SessionResultScreen(self.app.current_session))
+        elif event.option_id == "manage-sessions":
+            try:
+                output_dir = load_settings().output_dir
+            except ConfigError as exc:
+                self.notify(f"Error: {exc}", severity="error")
+            else:
+                self.app.switch_screen(SavedSessionsScreen(output_dir))
         else:
             self.app.exit()
 
@@ -237,13 +273,30 @@ class ModulesScreen(FlowScreen):
             return
 
         try:
-            output_dir = load_settings().output_dir
+            settings = load_settings()
+            session = InvestigationSession.create(
+                settings.output_dir,
+                self._target,
+                settings.session_max_depth,
+                settings.session_max_targets,
+                settings.hibp_api_key,
+            )
         except ConfigError as exc:
             self.notify(f"Error: {exc}", severity="error")
             return
+        except (OSError, SessionError) as exc:
+            self.notify(f"No se pudo crear la sesión ({type(exc).__name__}).", severity="error")
+            return
         modules = applicable_modules(self._target, names)
+        self.osint_app.current_session = session
         self.app.switch_screen(
-            RunScreen(self._target, modules, output_dir, self.osint_app.output_format)
+            RunScreen(
+                self._target,
+                modules,
+                session,
+                "entry-1",
+                self.osint_app.output_format,
+            )
         )
 
 
@@ -255,13 +308,15 @@ class RunScreen(FlowScreen):
         self,
         target: Target,
         modules: list[Module],
-        output_dir: Path,
+        session: InvestigationSession,
+        entry_id: str,
         output_format: OutputFormat,
     ) -> None:
         super().__init__()
         self._target = target
         self._modules = modules
-        self._output_dir = output_dir
+        self._session = session
+        self._entry_id = entry_id
         self._output_format = output_format
 
     # Preparar controles antes del worker garantiza que su progreso tenga destinos visibles.
@@ -289,6 +344,8 @@ class RunScreen(FlowScreen):
         def notify_module_progress(name: str, completed: int, total: int) -> None:
             self.app.call_from_thread(self._show_module_progress, name, completed, total)
 
+        report: Report | None = None
+        directory: Path | None = None
         try:
             report = run_investigation(
                 self._target,
@@ -296,14 +353,32 @@ class RunScreen(FlowScreen):
                 on_progress=notify_progress,
                 on_module_progress=notify_module_progress,
             )
-            directory, paths = write_reports(
-                report, self._output_dir, self._output_format
+            directory, _ = write_reports(
+                safe_report(report, self._session.api_key),
+                self._session.directory / "reports" / self._entry_id,
+                self._output_format,
             )
-        except OSError as exc:
-            self.app.call_from_thread(self._show_error, f"Error al escribir el informe: {exc}")
-            return
+            self._session.complete_entry(self._entry_id, report, directory)
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "La entrada %s falló (%s)", self._entry_id, type(exc).__name__
+            )
+            try:
+                self._session.fail_entry(
+                    self._entry_id,
+                    type(exc).__name__,
+                    report=report,
+                    report_directory=directory,
+                )
+            except (OSError, SessionError) as persistence_error:
+                self.app.call_from_thread(
+                    self._show_error,
+                    "La entrada falló y no se pudo guardar su estado "
+                    f"({type(persistence_error).__name__}).",
+                )
+                return
         self.app.call_from_thread(
-            self.app.switch_screen, ResultScreen(report, directory, paths)
+            self.app.switch_screen, SessionResultScreen(self._session)
         )
 
     # Actualizar una fila por módulo mantiene el avance legible sin exponer datos sensibles.
@@ -423,6 +498,524 @@ class ResultScreen(FlowScreen):
             )
 
 
+class SessionResultScreen(FlowScreen):
+    """Local session graph, node status, remaining budget, and next-step actions."""
+
+    def __init__(self, session: InvestigationSession) -> None:
+        super().__init__()
+        self._session = session
+
+    def compose(self) -> ComposeResult:
+        latest = self._session.entries[-1]
+        findings = len(latest.report.findings) if latest.report is not None else 0
+        yield Header()
+        yield Static(
+            Panel(
+                f"{len(self._session.entries)} objetivo(s) · {findings} hallazgo(s) "
+                f"en {latest.entry_id} · estado {latest.status.value}",
+                title="Sesión local",
+                border_style="cyan",
+            )
+        )
+        yield Static(
+            f"Presupuesto restante en la rama más profunda: "
+            f"{self._session.remaining_depth} nivel(es); "
+            f"{self._session.remaining_targets} objetivo(s). "
+            "Cada relación entre objetivos es una hipótesis no verificada."
+        )
+        yield Label("Nodos")
+        yield DataTable[str](id="session-nodes")
+        yield Label("Aristas — unverified hypothesis")
+        if self._session.edges:
+            yield DataTable[str](id="session-edges")
+        else:
+            yield Static("Aún no hay pivotes seleccionados.")
+        if latest.report is not None and latest.report.findings:
+            yield Label(f"Hallazgos de {latest.entry_id}")
+            yield DataTable[Text | str](id="session-findings")
+        elif latest.status is EntryStatus.FAILED:
+            yield Static(latest.error or "La entrada falló.")
+        else:
+            yield Static("Esta entrada no produjo hallazgos.")
+        yield Static(f"Informe local: {self._session.directory / 'session.json'}")
+        with Horizontal():
+            yield Button(
+                "Elegir hallazgo para pivot",
+                id="pivot",
+                disabled=not self._session.pivot_choices(),
+            )
+            yield Button(
+                "Eliminar sesión",
+                id="delete",
+                variant="error",
+                disabled=any(
+                    entry.status is EntryStatus.RUNNING for entry in self._session.entries
+                ),
+            )
+            yield Button("Menú", id="menu")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        nodes = self.query_one("#session-nodes", DataTable)
+        nodes.add_columns("Entrada", "Profundidad", "Objetivo", "Estado", "Informe")
+        for entry in self._session.entries:
+            nodes.add_row(
+                entry.entry_id,
+                str(entry.depth),
+                ", ".join(f"{key}={value}" for key, value in entry.target.to_dict().items()),
+                entry.status.value,
+                entry.report_directory or "",
+            )
+
+        if self._session.edges:
+            edges = self.query_one("#session-edges", DataTable)
+            edges.add_columns(
+                "Padre",
+                "Hijo",
+                "Módulo",
+                "URL de fuente",
+                "Evidencia",
+                "Confianza",
+                "Relación",
+            )
+            for edge in self._session.edges:
+                edges.add_row(
+                    edge.parent_entry_id,
+                    edge.child_entry_id,
+                    edge.source_module,
+                    edge.source_url or "",
+                    edge.evidence_text,
+                    f"{edge.confidence:.2f}",
+                    edge.label,
+                )
+
+        latest = self._session.entries[-1]
+        if latest.report is not None and latest.report.findings:
+            findings = self.query_one("#session-findings", DataTable)
+            findings.add_columns("Módulo", "Tipo", "Valor", "Fuente", "Evidencia", "Confianza")
+            for result in latest.report.results:
+                for finding in result.findings:
+                    findings.add_row(
+                        result.name,
+                        finding.entity_type,
+                        finding.value,
+                        finding.source,
+                        finding.detail or "",
+                        f"{finding.confidence:.2f}",
+                    )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "pivot":
+            self.app.switch_screen(PivotSelectionScreen(self._session))
+        elif event.button.id == "delete":
+            self.app.switch_screen(DeleteSessionScreen(self._session))
+        elif event.button.id == "menu":
+            self.action_menu()
+
+
+class PivotSelectionScreen(FlowScreen):
+    """List only exact, validator-approved values; each target type is an explicit row."""
+
+    def __init__(self, session: InvestigationSession) -> None:
+        super().__init__()
+        self._session = session
+        self._choices = session.pivot_choices()
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Label(
+            "Elige un valor observado y su tipo. Los valores ambiguos aparecen una vez "
+            "por cada tipo válido; no se infiere ni transforma ningún identificador."
+        )
+        yield Static(
+            f"Presupuesto en la rama más profunda: "
+            f"{self._session.remaining_depth} nivel(es); "
+            f"{self._session.remaining_targets} objetivo(s)."
+        )
+        if self._choices:
+            options = []
+            for index, choice in enumerate(self._choices):
+                evidence = safe_evidence_text(choice.finding.detail, self._session.api_key)
+                options.append(
+                    Selection(
+                        Text(
+                            f"{choice.parent_entry_id} (prof. "
+                            f"{self._session.entry(choice.parent_entry_id).depth}) · "
+                            f"{choice.target_type}="
+                            f"{choice.target.to_dict()[choice.target_type]} · "
+                            f"{choice.source_module}/{choice.finding.source} · "
+                            f"observado: {choice.finding.value} · "
+                            f"evidencia: {evidence} · "
+                            f"confianza {choice.finding.confidence:.2f}"
+                        ),
+                        str(index),
+                        False,
+                    )
+                )
+            yield SelectionList[str](
+                *options,
+                id="pivot-choices",
+            )
+        else:
+            yield Static("No hay valores nuevos que pasen los validadores actuales.")
+        with Horizontal():
+            yield Button("Revisar módulos", id="select", disabled=not self._choices)
+            yield Button("Cancelar", id="cancel")
+        yield Footer()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel":
+            self.app.switch_screen(SessionResultScreen(self._session))
+            return
+        if not self._choices:
+            return
+        selected = self.query_one("#pivot-choices", SelectionList).selected
+        if len(selected) != 1:
+            self.notify("Selecciona exactamente un valor y tipo.", severity="warning")
+            return
+        try:
+            choice = self._choices[int(selected[0])]
+        except (ValueError, IndexError):
+            self.notify("La selección ya no es válida.", severity="error")
+            return
+        self.app.switch_screen(
+            PivotModulesScreen(self._session, choice)
+        )
+
+
+class PivotModulesScreen(FlowScreen):
+    """Select modules for one pivot while exposing recipients before confirmation."""
+
+    def __init__(self, session: InvestigationSession, choice: PivotChoice) -> None:
+        super().__init__()
+        self._session = session
+        self._choice = choice
+        self._modules = applicable_modules(choice.target)
+        self._recipients: dict[str, tuple[str, ...]] = {}
+        self._recipient_errors: dict[str, str] = {}
+        for module in self._modules:
+            recipients, error = _resolve_module_recipients(module)
+            if error is not None:
+                self._recipient_errors[module.name] = error
+            else:
+                self._recipients[module.name] = recipients
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        value = self._choice.target.to_dict()[self._choice.target_type]
+        yield Static(
+            f"Objetivo propuesto: {self._choice.target_type}={value}. "
+            "Seleccionar módulos no los ejecuta."
+        )
+        yield Label("Módulos (espacio para marcar/desmarcar)")
+        if self._modules:
+            yield SelectionList[str](
+                *(
+                    _module_selection(module, self._choice.target.provided())
+                    for module in self._modules
+                )
+            )
+        else:
+            yield Static("No hay módulos aplicables a este valor.")
+        yield Label("Destinatarios potenciales")
+        yield RichLog(id="pivot-recipients", markup=False)
+        with Horizontal():
+            yield Button("Revisar confirmación", id="review", disabled=not self._modules)
+            yield Button("Cancelar", id="cancel")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        log = self.query_one("#pivot-recipients", RichLog)
+        for module in self._modules:
+            if not getattr(module, "requires_network", False):
+                log.write(f"{module.name}: local; no se envía a terceros.")
+                continue
+            if module.name in self._recipient_errors:
+                log.write(
+                    f"{module.name}: destinatarios no disponibles "
+                    f"({self._recipient_errors[module.name]}); no se podrá ejecutar."
+                )
+                continue
+            for recipient in self._recipients[module.name]:
+                log.write(f"{module.name} -> {recipient}")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel":
+            self.app.switch_screen(SessionResultScreen(self._session))
+            return
+        names = set(self.query_one(SelectionList).selected)
+        if not names:
+            self.notify("Selecciona al menos un módulo.", severity="warning")
+            return
+        selected = [module for module in self._modules if module.name in names]
+        unavailable = [module.name for module in selected if module.name in self._recipient_errors]
+        if unavailable:
+            self.notify(
+                "No se pueden confirmar los destinatarios de: " + ", ".join(unavailable),
+                severity="error",
+            )
+            return
+        recipients = {
+            module.name: self._recipients[module.name]
+            for module in selected
+            if getattr(module, "requires_network", False)
+        }
+        self.app.switch_screen(
+            PivotConfirmScreen(self._session, self._choice, selected, recipients)
+        )
+
+
+class PivotConfirmScreen(FlowScreen):
+    """Fail-closed consent screen; a checked box is required before the run button enables."""
+
+    def __init__(
+        self,
+        session: InvestigationSession,
+        choice: PivotChoice,
+        modules: list[Module],
+        recipients: dict[str, tuple[str, ...]],
+    ) -> None:
+        super().__init__()
+        self._session = session
+        self._choice = choice
+        self._modules = modules
+        self._recipients = recipients
+
+    def compose(self) -> ComposeResult:
+        value = self._choice.target.to_dict()[self._choice.target_type]
+        finding = self._choice.finding
+        evidence = safe_evidence_text(finding.detail, self._session.api_key)
+        source = safe_evidence_text(finding.source, self._session.api_key)
+        source_url = safe_source_url(finding.source_url, self._session.api_key)
+        yield Header()
+        yield Static(Text(
+            f"Destino: {self._choice.target_type}={value}\n"
+            f"Origen: {self._choice.parent_entry_id} / {self._choice.source_module} / "
+            f"{source}\n"
+            f"Valor observado: {finding.value}\n"
+            f"Evidencia: {evidence or 'sin detalle adicional'}\n"
+            f"URL de fuente: {source_url or 'no disponible'}\n"
+            f"Confianza: {finding.confidence:.2f} (no es probabilidad calibrada)\n"
+            f"Relación: {EDGE_LABEL}"
+        ))
+        parent_depth = self._session.entry(self._choice.parent_entry_id).depth
+        depth_budget = max(0, self._session.max_depth - parent_depth - 1)
+        target_budget = max(0, self._session.remaining_targets - 1)
+        yield Static(
+            f"Presupuesto tras confirmar: profundidad restante {depth_budget}; "
+            f"{target_budget} objetivo(s)."
+        )
+        yield Label("Módulos y destinatarios")
+        yield RichLog(id="confirmation-recipients", markup=False)
+        yield Checkbox(
+            "Confirmo ejecutar estos módulos y enviar el identificador a los destinatarios "
+            "indicados (sin marcar = no ejecutar).",
+            id="confirm",
+            value=False,
+        )
+        with Horizontal():
+            yield Button("No, cancelar", id="no")
+            yield Button("Sí, ejecutar", id="yes", variant="error", disabled=True)
+        yield Footer()
+
+    def on_mount(self) -> None:
+        log = self.query_one("#confirmation-recipients", RichLog)
+        for module in self._modules:
+            if getattr(module, "requires_network", False):
+                for recipient in self._recipients[module.name]:
+                    log.write(f"{module.name} -> {recipient}")
+            else:
+                log.write(f"{module.name}: local; no se envía a terceros.")
+
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        if event.checkbox.id == "confirm":
+            self.query_one("#yes", Button).disabled = not event.value
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "no":
+            self.app.switch_screen(SessionResultScreen(self._session))
+            return
+        if event.button.id != "yes" or not self.query_one("#confirm", Checkbox).value:
+            return
+        try:
+            entry = self._session.add_pivot(self._choice)
+        except (OSError, SessionError) as exc:
+            self.notify(
+                f"No se pudo iniciar el pivote ({type(exc).__name__}).",
+                severity="error",
+            )
+            return
+        self.app.switch_screen(
+            RunScreen(
+                entry.target,
+                self._modules,
+                self._session,
+                entry.entry_id,
+                self.osint_app.output_format,
+            )
+        )
+
+
+def _resolve_module_recipients(module: Module) -> tuple[tuple[str, ...], str | None]:
+    try:
+        return network_recipients(module), None
+    except (ModuleSkipped, OSError, ValueError) as exc:
+        return (), type(exc).__name__
+
+
+class DeleteSessionScreen(FlowScreen):
+    """Require an explicit, unchecked-by-default confirmation before local deletion."""
+
+    def __init__(self, session: InvestigationSession) -> None:
+        super().__init__()
+        self._session = session
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Label(
+            f"Eliminar la sesión local y todos sus informes: {self._session.directory}?"
+        )
+        yield Checkbox("Confirmo eliminar esta sesión", id="confirm-delete", value=False)
+        with Horizontal():
+            yield Button("No, conservar", id="no")
+            yield Button("Sí, eliminar", id="yes", variant="error", disabled=True)
+        yield Footer()
+
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        if event.checkbox.id == "confirm-delete":
+            self.query_one("#yes", Button).disabled = not event.value
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "no":
+            self.app.switch_screen(SessionResultScreen(self._session))
+            return
+        if event.button.id != "yes" or not self.query_one("#confirm-delete", Checkbox).value:
+            return
+        try:
+            self._session.delete()
+        except (OSError, SessionError) as exc:
+            self.notify(f"No se pudo eliminar la sesión ({type(exc).__name__}).", severity="error")
+            return
+        if self.osint_app.current_session is self._session:
+            self.osint_app.current_session = None
+        self.app.switch_screen(MenuScreen())
+
+
+class SavedSessionsScreen(FlowScreen):
+    """List local sessions so older persisted sessions remain deletable after restart."""
+
+    def __init__(self, output_dir: Path) -> None:
+        super().__init__()
+        self._output_dir = output_dir
+        self._sessions: list[SavedSession] = []
+        self._error: str | None = None
+        try:
+            self._sessions = list_saved_sessions(output_dir)
+        except (OSError, SessionError) as exc:
+            self._error = type(exc).__name__
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Label("Sesiones guardadas localmente")
+        if self._error:
+            yield Static(f"No se pudieron leer las sesiones ({self._error}).")
+        elif self._sessions:
+            yield SelectionList[str](
+                *(
+                    Selection(
+                        f"{session.session_id} · {session.created_at} · "
+                        f"{session.node_count} nodo(s) · {session.status}"
+                        + ("" if session.safe_to_delete else " · no eliminable"),
+                        session.session_id,
+                        False,
+                    )
+                    for session in self._sessions
+                ),
+                id="saved-sessions",
+            )
+        else:
+            yield Static("No hay sesiones guardadas.")
+        with Horizontal():
+            yield Button(
+                "Eliminar sesión seleccionada",
+                id="delete",
+                variant="error",
+                disabled=not self._sessions or self._error is not None,
+            )
+            yield Button("Volver", id="back")
+        yield Footer()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "back":
+            self.action_menu()
+            return
+        selected = self.query_one("#saved-sessions", SelectionList).selected
+        if len(selected) != 1:
+            self.notify("Selecciona exactamente una sesión.", severity="warning")
+            return
+        session = next(
+            (item for item in self._sessions if item.session_id == selected[0]),
+            None,
+        )
+        if session is None or not session.safe_to_delete:
+            self.notify("La carpeta no se puede eliminar de forma segura.", severity="error")
+            return
+        current = self.osint_app.current_session
+        if (
+            current is not None
+            and current.session_id == session.session_id
+            and any(entry.status is EntryStatus.RUNNING for entry in current.entries)
+        ):
+            self.notify(
+                "No se puede eliminar una sesión mientras ejecuta una entrada.",
+                severity="error",
+            )
+            return
+        self.app.switch_screen(DeleteSavedSessionScreen(self._output_dir, session))
+
+
+class DeleteSavedSessionScreen(FlowScreen):
+    """Confirm deletion of one persisted session, including its per-entry reports."""
+
+    def __init__(self, output_dir: Path, session: SavedSession) -> None:
+        super().__init__()
+        self._output_dir = output_dir
+        self._session = session
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Label(
+            f"Eliminar la sesión local {self._session.session_id} y sus informes?"
+        )
+        yield Checkbox("Confirmo eliminar esta sesión", id="confirm-delete", value=False)
+        with Horizontal():
+            yield Button("No, conservar", id="no")
+            yield Button("Sí, eliminar", id="yes", variant="error", disabled=True)
+        yield Footer()
+
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        if event.checkbox.id == "confirm-delete":
+            self.query_one("#yes", Button).disabled = not event.value
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "no":
+            self.app.switch_screen(SavedSessionsScreen(self._output_dir))
+            return
+        if event.button.id != "yes" or not self.query_one("#confirm-delete", Checkbox).value:
+            return
+        try:
+            delete_saved_session(self._output_dir, self._session.session_id)
+        except (OSError, SessionError) as exc:
+            self.notify(f"No se pudo eliminar la sesión ({type(exc).__name__}).", severity="error")
+            return
+        if (
+            self.osint_app.current_session is not None
+            and self.osint_app.current_session.session_id == self._session.session_id
+        ):
+            self.osint_app.current_session = None
+        self.app.switch_screen(SavedSessionsScreen(self._output_dir))
+
+
 class OsintApp(App[None]):
     TITLE = "OSINTBODY"
 
@@ -430,6 +1023,7 @@ class OsintApp(App[None]):
     def __init__(self, output_format: OutputFormat = "all") -> None:
         super().__init__()
         self.output_format = output_format
+        self.current_session: InvestigationSession | None = None
         self._web_server: BaseWSGIServer | None = None
 
     # Crear el servidor de forma diferida evita abrir un puerto si el usuario no pide la web.

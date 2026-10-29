@@ -15,7 +15,7 @@ import logging
 from dataclasses import asdict, dataclass
 from http import HTTPStatus
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import requests
 
@@ -158,6 +158,18 @@ class BreachesModule:
         """Sesión y configuración se pueden inyectar para probar sin red."""
         self._session = build_session() if session is None else session
         self._settings = load_settings() if settings is None else settings
+
+    def third_party_recipients(self) -> tuple[str, ...]:
+        """Hosts configurados que reciben el correo consultado."""
+        hosts = {
+            parsed.hostname
+            for url in (
+                self._settings.breaches_api_url,
+                self._settings.breaches_analytics_url,
+            )
+            if (parsed := urlsplit(url)).hostname
+        }
+        return tuple(sorted(host for host in hosts if host is not None))
 
     # Mantener los nombres aunque falle el enriquecimiento evita perder el resultado primario.
     def run(self, target: Target) -> ModuleOutput:

@@ -111,6 +111,7 @@ class HibpModule:
         "Envía el correo a Have I Been Pwned, un tercero. Requiere OSINT_HIBP_API_KEY; "
         "sin clave no se consulta la red."
     )
+    third_party_recipients = ("Have I Been Pwned",)
 
     def __init__(
         self,

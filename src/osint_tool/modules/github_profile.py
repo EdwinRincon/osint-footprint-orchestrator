@@ -46,6 +46,7 @@ class GitHubProfileModule:
         "Envía el username a GitHub y recoge los enlaces que el perfil declara (web, Twitter/X, "
         "email público). API anónima: 60 solicitudes/hora; son pistas, no prueba de identidad."
     )
+    third_party_recipients = ("GitHub",)
 
     def __init__(self, session: requests.Session | None = None) -> None:
         self._session = build_session() if session is None else session

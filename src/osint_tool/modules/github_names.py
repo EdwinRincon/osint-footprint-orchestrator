@@ -36,6 +36,7 @@ class GitHubNameModule:
         "Busca hasta cinco perfiles públicos por nombre completo. API anónima: "
         "límite de búsqueda de 10 solicitudes por minuto; los resultados son candidatos."
     )
+    third_party_recipients = ("GitHub",)
 
     def __init__(self, session: requests.Session | None = None) -> None:
         self._session = build_session() if session is None else session

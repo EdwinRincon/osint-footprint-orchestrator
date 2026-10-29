@@ -27,6 +27,8 @@ HTTPS_PREFIX = "https://"
 MIN_HTTP_TIMEOUT = 1.0
 MIN_HTTP_RETRIES = 0
 MIN_CLI_TIMEOUT = 1
+MAX_SESSION_DEPTH = 2
+MAX_SESSION_TARGETS = 10
 
 _SOURCE_RE = re.compile(r"[A-Za-z0-9_]+")
 
@@ -51,6 +53,8 @@ class Settings:
     breaches_analytics_url: str = DEFAULT_BREACHES_ANALYTICS_URL  # detalle; plantilla con {email}
     breaches_reference_url: str = DEFAULT_BREACHES_REFERENCE_URL  # documentación de la API
     hibp_api_key: str | None = field(default=None, repr=False)  # clave de API Have I Been Pwned
+    session_max_depth: int = MAX_SESSION_DEPTH
+    session_max_targets: int = MAX_SESSION_TARGETS
 
 
 # Un conversor común evita que cada ajuste interprete números de forma distinta.
@@ -65,6 +69,20 @@ def _read_number(name: str, default: float, minimum: float) -> float:
         raise ConfigError(f"{name} debe ser un número, recibido: {raw!r}") from exc
     if value < minimum:
         raise ConfigError(f"{name} debe ser >= {minimum}, recibido: {value}")
+    return value
+
+
+def _read_bounded_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    """Lee un entero configurable sin permitir superar el límite máximo del producto."""
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ConfigError(f"{name} debe ser un entero, recibido: {raw!r}") from exc
+    if not minimum <= value <= maximum:
+        raise ConfigError(f"{name} debe estar entre {minimum} y {maximum}, recibido: {value}")
     return value
 
 
@@ -140,7 +158,8 @@ def load_settings() -> Settings:
         OSINT_HTTP_TIMEOUT, OSINT_HTTP_RETRIES, OSINT_CLI_TIMEOUT, OSINT_OUTPUT_DIR,
         OSINT_WMN_FILE, OSINT_WMN_UPDATE_URL,
         OSINT_HARVESTER_SOURCES, OSINT_BREACHES_API_URL, OSINT_BREACHES_ANALYTICS_URL,
-        OSINT_BREACHES_REFERENCE_URL, OSINT_HIBP_API_KEY
+        OSINT_BREACHES_REFERENCE_URL, OSINT_HIBP_API_KEY,
+        OSINT_SESSION_MAX_DEPTH, OSINT_SESSION_MAX_TARGETS
     """
     defaults = Settings()
     return Settings(
@@ -163,4 +182,10 @@ def load_settings() -> Settings:
             "OSINT_BREACHES_REFERENCE_URL", defaults.breaches_reference_url
         ),
         hibp_api_key=os.environ.get("OSINT_HIBP_API_KEY", "").strip() or None,
+        session_max_depth=_read_bounded_int(
+            "OSINT_SESSION_MAX_DEPTH", defaults.session_max_depth, 0, MAX_SESSION_DEPTH
+        ),
+        session_max_targets=_read_bounded_int(
+            "OSINT_SESSION_MAX_TARGETS", defaults.session_max_targets, 1, MAX_SESSION_TARGETS
+        ),
     )
