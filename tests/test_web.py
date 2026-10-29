@@ -89,13 +89,16 @@ def test_formulario_inicial(client: FlaskClient) -> None:
     assert b"theHarvester" in response.data
     assert b"DNS y WHOIS" in response.data
     assert b"Perfiles de username" in response.data
+    assert b"Brechas de Have I Been Pwned" in response.data
+    assert b"OSINT_HIBP_API_KEY" in response.data
+    assert b"Env\xc3\xada el correo a Have I Been Pwned, un tercero" in response.data
     assert b"Iniciar an\xc3\xa1lisis" in response.data
     assert b'class="source-settings"' in response.data
     assert b"Modo privado: no permitir consultas externas" in response.data
     assert b"@media (max-width: 680px)" in response.data
     assert re.search(rb'<input id="offline"[^>]*checked', response.data, re.DOTALL)
     assert b'data-network="true"' in response.data
-    for module_name in (b"breaches", b"domain", b"harvester", b"usernames"):
+    for module_name in (b"breaches", b"domain", b"harvester", b"usernames", b"hibp"):
         assert not re.search(
             rb'<input id="module-' + module_name + rb'"[^>]*checked', response.data
         )
@@ -122,7 +125,15 @@ def test_busqueda_es_asincrona_y_no_genera_informe_automaticamente(
 
     generated = client.post(
         f"{job_url}/report",
-        data={"statuses": ["found", "not_found", "inconclusive", "error"]},
+        data={
+            "statuses": [
+                "found",
+                "not_found",
+                "not_configured",
+                "inconclusive",
+                "error",
+            ]
+        },
     )
     assert generated.status_code == 200
     generated_payload = generated.get_json()
@@ -182,7 +193,15 @@ def test_entradas_combinadas_llegan_al_informe_sin_consultas_reales(
 
     generated = client.post(
         f"{job_url}/report",
-        data={"statuses": ["found", "not_found", "inconclusive", "error"]},
+        data={
+            "statuses": [
+                "found",
+                "not_found",
+                "not_configured",
+                "inconclusive",
+                "error",
+            ]
+        },
     )
     assert generated.status_code == 200
     report_json = client.get(generated.get_json()["download_urls"]["report.json"])
@@ -226,7 +245,7 @@ def test_filtros_de_estado_iniciales(client: FlaskClient) -> None:
         results_page,
     )
     assert {value for value, _ in inputs} == {
-        b"found", b"not_found", b"inconclusive", b"error"
+        b"found", b"not_found", b"not_configured", b"inconclusive", b"error"
     }
     assert {value for value, attrs in inputs if b"checked" in attrs} == {b"found"}
 
@@ -370,6 +389,7 @@ def test_informe_filtra_comprobaciones_y_conserva_cobertura_completa(
         source_checks=[
             SourceCheck("Site A", SourceCheckStatus.FOUND, "HTTP 200"),
             SourceCheck("Site B", SourceCheckStatus.NOT_FOUND, "HTTP 404"),
+            SourceCheck("Have I Been Pwned", SourceCheckStatus.NOT_CONFIGURED),
             SourceCheck("Site C", SourceCheckStatus.INCONCLUSIVE, "HTTP 429"),
         ],
     )
@@ -388,7 +408,7 @@ def test_informe_filtra_comprobaciones_y_conserva_cobertura_completa(
     assert _wait_for_completion(client, job_url)["status"] == "complete"
     response = client.get(f"{job_url}/data")
     checks = response.get_json()["source_checks"]
-    assert len(checks) == 3
+    assert len(checks) == 4
     assert checks[0]["profile_url"] == "https://site-a.test/demo"
     assert list(salida.iterdir()) == []
 
@@ -404,13 +424,15 @@ def test_informe_filtra_comprobaciones_y_conserva_cobertura_completa(
     assert [item["source"] for item in usernames["findings"]] == ["Site A"]
     assert [item["source"] for item in usernames["source_checks"]] == ["Site A"]
     assert report_json["coverage_summary"] == {
-        "total": 3,
+        "total": 4,
         "included": 1,
         "found": 1,
         "not_found": 1,
+        "not_configured": 1,
         "inconclusive": 1,
         "error": 0,
     }
+    assert b"No configurado" in client.get(report_url).data
     assert report_json["filter_summary"] == {"statuses": "found", "search": "site a"}
     assert len(report_json["notes"]) == 1
 
@@ -554,6 +576,7 @@ def test_dns_y_whois_aparecen_en_cobertura_y_se_filtran(
         "included": 1,
         "found": 1,
         "not_found": 1,
+        "not_configured": 0,
         "inconclusive": 0,
         "error": 1,
     }

@@ -96,7 +96,7 @@
       moduleFilter.append(option);
     }
     const countByStatus = Object.fromEntries(
-      ["found", "not_found", "inconclusive", "error"].map((status) => [
+      ["found", "not_found", "not_configured", "inconclusive", "error"].map((status) => [
         status,
         checks.filter((check) => check.status === status).length,
       ]),
@@ -108,6 +108,7 @@
       ["Relaciones", data.relations],
       ["Comprobaciones", checks.length],
       ["Encontrados", countByStatus.found],
+      ["No configurados", countByStatus.not_configured],
       ["Inconclusos / errores", countByStatus.inconclusive + countByStatus.error],
     ];
     for (const [label, value] of totals) {

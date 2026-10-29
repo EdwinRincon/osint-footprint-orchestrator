@@ -33,7 +33,7 @@ from textual.widgets.selection_list import Selection
 from werkzeug.serving import BaseWSGIServer, make_server
 
 from osint_tool.config import ConfigError, load_settings
-from osint_tool.models import ModuleResult, Report, Status, Target
+from osint_tool.models import ModuleResult, Report, SourceCheckStatus, Status, Target
 from osint_tool.registry import Module, all_modules, applicable_modules
 from osint_tool.reporters import write_reports
 from osint_tool.reporters.base import LEGAL_NOTICE
@@ -192,6 +192,11 @@ class ModulesScreen(FlowScreen):
                 yield Static(
                     "Brechas conocidas envía el correo a XposedOrNot "
                     "(2 solicitudes/s, 25/hora, 100/día por endpoint)."
+                )
+            if any(module.name == "hibp" for module in modules):
+                yield Static(
+                    "HIBP envía el correo a Have I Been Pwned, un tercero. Requiere "
+                    "OSINT_HIBP_API_KEY; sin ella no se consulta la red."
                 )
             if any(module.name == "github_name" for module in modules):
                 yield Static(
@@ -403,12 +408,18 @@ class ResultScreen(FlowScreen):
         modules_table = self.query_one("#modules", DataTable)
         modules_table.add_columns("Módulo", "Estado", "Hallazgos", "Duración", "Detalle")
         for result in self._report.results:
+            not_configured = [
+                f"{check.source}: {check.status.value}"
+                for check in result.source_checks
+                if check.status is SourceCheckStatus.NOT_CONFIGURED
+            ]
+            details = [result.error, *not_configured]
             modules_table.add_row(
                 result.name,
                 Text(result.status.value, style=STATUS_STYLES[result.status]),
                 str(len(result.findings)),
                 f"{result.duration:.1f} s",
-                result.error or "",
+                "; ".join(detail for detail in details if detail),
             )
 
 

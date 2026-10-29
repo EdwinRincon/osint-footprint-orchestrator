@@ -34,7 +34,7 @@
     .status { margin-left: .35rem; font-size: .8rem; font-weight: 700; }
     .status.ok, .status.found { color: #16734f; }
     .status.error { color: #a3332c; }
-    .status.skipped, .status.inconclusive { color: #8a681a; }
+    .status.skipped, .status.inconclusive, .status.not_configured { color: #8a681a; }
     .error { color: #9b2c25; }
     .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
                     gap: .65rem; margin: 1rem 0; }
@@ -155,6 +155,7 @@
                  placeholder="Buscar fuente, valor o detalle" aria-label="Buscar en hallazgos y fuentes">
           {% for value, label in [
             ("found", "Encontrado"), ("not_found", "No encontrado"),
+            ("not_configured", "No configurado"),
             ("inconclusive", "Inconcluso"), ("error", "Error")
           ] %}
           <label><input type="checkbox" name="statuses" value="{{ value }}"

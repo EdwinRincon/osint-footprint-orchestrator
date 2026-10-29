@@ -22,6 +22,7 @@ VARS = (
     "OSINT_BREACHES_API_URL",
     "OSINT_BREACHES_ANALYTICS_URL",
     "OSINT_BREACHES_REFERENCE_URL",
+    "OSINT_HIBP_API_KEY",
 )
 EMAIL_TEMPLATE_VARS = ["OSINT_BREACHES_API_URL", "OSINT_BREACHES_ANALYTICS_URL"]
 
@@ -41,6 +42,21 @@ def test_valores_por_defecto() -> None:
     assert settings.breaches_api_url == DEFAULT_BREACHES_API_URL
     assert settings.breaches_analytics_url == DEFAULT_BREACHES_ANALYTICS_URL
     assert settings.breaches_reference_url == DEFAULT_BREACHES_REFERENCE_URL
+    assert settings.hibp_api_key is None
+
+
+def test_api_key_hibp_se_normaliza(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OSINT_HIBP_API_KEY", "  test-key  ")
+    settings = load_settings()
+    assert settings.hibp_api_key == "test-key"
+    assert "test-key" not in repr(settings)
+
+
+def test_api_key_hibp_vacia_equivale_a_no_configurada(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OSINT_HIBP_API_KEY", "   ")
+    assert load_settings().hibp_api_key is None
 
 
 def test_el_dataset_por_defecto_esta_en_la_carpeta_data() -> None:

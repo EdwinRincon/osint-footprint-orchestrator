@@ -4,7 +4,16 @@ from unittest.mock import Mock
 from textual.widgets import DataTable, Input, SelectionList, Static
 
 from osint_tool import tui
-from osint_tool.models import Finding, ModuleResult, Relation, Report, Status, Target
+from osint_tool.models import (
+    Finding,
+    ModuleResult,
+    Relation,
+    Report,
+    SourceCheck,
+    SourceCheckStatus,
+    Status,
+    Target,
+)
 from osint_tool.tui import (
     MenuScreen,
     ModuleListScreen,
@@ -97,6 +106,20 @@ def test_modulos_de_red_no_se_seleccionan_automaticamente() -> None:
     asyncio.run(scenario())
 
 
+def test_modulo_hibp_muestra_aviso_de_divulgacion_y_requisito() -> None:
+    async def scenario() -> None:
+        app = OsintApp()
+        async with app.run_test(size=(100, 40)) as pilot:
+            app.switch_screen(ModulesScreen(Target(email="ana@ejemplo.com")))
+            await pilot.pause()
+            notices = [str(widget.render()) for widget in app.screen.query(Static)]
+            assert any("Have I Been Pwned" in notice for notice in notices)
+            assert any("un tercero" in notice for notice in notices)
+            assert any("OSINT_HIBP_API_KEY" in notice for notice in notices)
+
+    asyncio.run(scenario())
+
+
 def test_dato_invalido_se_queda_en_el_formulario() -> None:
     async def scenario() -> None:
         app = OsintApp()
@@ -146,5 +169,30 @@ def test_resultados_muestran_hallazgos_y_relaciones_en_terminal(tmp_path) -> Non
             assert relations.row_count == 1
             assert "https://example.test/demo_user" in str(findings.get_row_at(0))
             assert "Sitio ficticio" in str(relations.get_row_at(0))
+
+    asyncio.run(scenario())
+
+
+def test_resultados_muestran_fuentes_no_configuradas_en_terminal(tmp_path) -> None:
+    report = Report(
+        target=Target(email="ana@ejemplo.com"),
+        results=[
+            ModuleResult(
+                "hibp",
+                Status.OK,
+                source_checks=[
+                    SourceCheck("Have I Been Pwned", SourceCheckStatus.NOT_CONFIGURED)
+                ],
+            )
+        ],
+    )
+
+    async def scenario() -> None:
+        app = OsintApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            app.switch_screen(ResultScreen(report, tmp_path, []))
+            await pilot.pause()
+            modules = app.screen.query_one("#modules", DataTable)
+            assert "Have I Been Pwned: not_configured" in str(modules.get_row_at(0))
 
     asyncio.run(scenario())

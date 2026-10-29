@@ -113,6 +113,7 @@ class SourceCheckStatus(str, Enum):
 
     FOUND = "found"
     NOT_FOUND = "not_found"
+    NOT_CONFIGURED = "not_configured"
     INCONCLUSIVE = "inconclusive"
     ERROR = "error"
 

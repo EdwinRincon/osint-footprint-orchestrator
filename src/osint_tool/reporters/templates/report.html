@@ -23,6 +23,7 @@
     .error { background: #ffd6d6; }
     .found { background: #d6f5d6; }
     .not_found { background: #eee; }
+    .not_configured { background: #fff0c2; }
     .inconclusive { background: #fff0c2; }
     .muted { color: #666; }
     details { margin: .5rem 0 1rem; }
@@ -129,10 +130,12 @@
     {{ report.coverage_summary.total }} comprobaciones tras aplicar los filtros.
     Los siguientes totales corresponden a la búsqueda completa.</p>
   <div class="table-wrap"><table>
-    <tr><th>Encontrado</th><th>No encontrado</th><th>Inconcluso</th><th>Error</th></tr>
+    <tr><th>Encontrado</th><th>No encontrado</th><th>No configurado</th>
+      <th>Inconcluso</th><th>Error</th></tr>
     <tr>
       <td>{{ report.coverage_summary.found }}</td>
       <td>{{ report.coverage_summary.not_found }}</td>
+      <td>{{ report.coverage_summary.not_configured }}</td>
       <td>{{ report.coverage_summary.inconclusive }}</td>
       <td>{{ report.coverage_summary.error }}</td>
     </tr>
