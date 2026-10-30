@@ -28,7 +28,7 @@ _SECRET_ASSIGNMENT_RE = re.compile(
 _BEARER_RE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]+=*")
 _URL_RE = re.compile(r"https?://[^\s<>'\"]+", re.IGNORECASE)
 _SESSION_ID_RE = re.compile(r"[0-9a-f]{32}")
-_KNOWN_ENTRY_STATUSES = frozenset({"running", "completed", "failed"})
+_KNOWN_ENTRY_STATUSES = frozenset({"running", "completed", "failed", "interrupted"})
 
 
 class SessionError(ValueError):
@@ -39,6 +39,7 @@ class EntryStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    INTERRUPTED = "interrupted"
 
 
 @dataclass
@@ -283,6 +284,21 @@ def _report_data(report: Report, api_key: str | None) -> dict[str, object]:
     }
 
 
+def _listed_session_status(schema_version: object, nodes: list[object]) -> str:
+    if type(schema_version) is not int or schema_version != SESSION_SCHEMA_VERSION:
+        return "versión no compatible"
+    node_statuses: list[str] = []
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        status = node.get("status")
+        if isinstance(status, str) and status in _KNOWN_ENTRY_STATUSES:
+            node_statuses.append(status)
+    if EntryStatus.RUNNING.value in node_statuses:
+        return EntryStatus.INTERRUPTED.value
+    return node_statuses[-1] if node_statuses else "unknown"
+
+
 def list_saved_sessions(output_dir: Path) -> list[SavedSession]:
     """List local session folders without trusting their serialized contents."""
     root = output_dir / "sessions"
@@ -328,13 +344,6 @@ def list_saved_sessions(output_dir: Path) -> list[SavedSession]:
             )
             continue
         nodes = data["nodes"]
-        latest_status = "unknown"
-        for node in nodes:
-            if not isinstance(node, dict):
-                continue
-            status = node.get("status")
-            if isinstance(status, str) and status in _KNOWN_ENTRY_STATUSES:
-                latest_status = status
         created_at = data.get("created_at")
         try:
             created_at = (
@@ -344,13 +353,14 @@ def list_saved_sessions(output_dir: Path) -> list[SavedSession]:
             )
         except ValueError:
             created_at = "desconocida"
+        session_status = _listed_session_status(data.get("schema_version"), nodes)
         sessions.append(
             SavedSession(
                 directory.name,
                 directory,
                 created_at,
                 len(nodes),
-                latest_status,
+                session_status,
                 True,
             )
         )

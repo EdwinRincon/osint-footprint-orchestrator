@@ -1,7 +1,9 @@
 import asyncio
+import json
 from unittest.mock import Mock
 
-from textual.widgets import Button, Checkbox, DataTable, Input, SelectionList, Static
+import pytest
+from textual.widgets import Button, Checkbox, DataTable, Input, OptionList, SelectionList, Static
 
 from osint_tool import tui
 from osint_tool.models import (
@@ -22,6 +24,7 @@ from osint_tool.tui import (
     OsintApp,
     PivotConfirmScreen,
     ResultScreen,
+    SavedSessionsScreen,
     TargetScreen,
 )
 from osint_tool.validation import build_target
@@ -52,6 +55,91 @@ def test_menu_abre_el_sitio_web(monkeypatch) -> None:
             await pilot.press("down", "down", "enter")
             await pilot.pause()
             open_website.assert_called_once_with()
+
+    asyncio.run(scenario())
+
+
+def test_menu_presenta_historial_local_en_lugar_de_administrar_sesiones() -> None:
+    async def scenario() -> None:
+        app = OsintApp()
+        async with app.run_test(size=(100, 40)) as pilot:
+            await pilot.pause()
+            options = app.screen.query_one(OptionList)
+            labels = [
+                str(options.get_option_at_index(index).prompt)
+                for index in range(options.option_count)
+            ]
+            assert "Historial local" in labels
+            assert "Administrar sesiones locales" not in labels
+
+    asyncio.run(scenario())
+
+
+def test_historial_local_explica_que_permite_consultar_y_eliminar(tmp_path) -> None:
+    async def scenario() -> None:
+        app = OsintApp()
+        async with app.run_test(size=(100, 40)) as pilot:
+            app.switch_screen(SavedSessionsScreen(tmp_path))
+            await pilot.pause()
+            description = app.screen.query_one("#history-description", Static)
+            text = str(description.render()).lower()
+            assert "consulta" in text
+            assert "elimina" in text
+
+    asyncio.run(scenario())
+
+
+def test_historial_local_no_muestra_como_interrumpida_la_sesion_activa(tmp_path) -> None:
+    session = InvestigationSession.create(tmp_path, build_target(username="root"))
+
+    async def scenario() -> None:
+        app = OsintApp()
+        app.current_session = session
+        async with app.run_test(size=(100, 40)) as pilot:
+            app.switch_screen(SavedSessionsScreen(tmp_path))
+            await pilot.pause()
+            sessions = app.screen.query_one("#saved-sessions", SelectionList)
+            item = str(sessions.get_option_at_index(0).prompt).lower()
+            assert "running" in item
+            assert "interrupted" not in item
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("incompatible_schema", [False, True], ids=["interrupted", "incompatible"])
+def test_historial_local_permite_eliminar_sesiones_interrumpidas_y_no_compatibles(
+    tmp_path, incompatible_schema: bool
+) -> None:
+    session = InvestigationSession.create(tmp_path, build_target(username="root"))
+    if incompatible_schema:
+        session_file = session.directory / "session.json"
+        data = json.loads(session_file.read_text(encoding="utf-8"))
+        data["schema_version"] = "future"
+        session_file.write_text(json.dumps(data), encoding="utf-8")
+
+    async def scenario() -> None:
+        app = OsintApp()
+        async with app.run_test(size=(100, 40)) as pilot:
+            app.switch_screen(SavedSessionsScreen(tmp_path))
+            await pilot.pause()
+            sessions = app.screen.query_one("#saved-sessions", SelectionList)
+            item = str(sessions.get_option_at_index(0).prompt).lower()
+            expected_status = (
+                "versión no compatible" if incompatible_schema else "interrupted"
+            )
+            assert expected_status in item
+            sessions.select(session.session_id)
+            await pilot.click("#delete")
+            await pilot.pause()
+            assert app.screen.query_one("#confirm-delete", Checkbox)
+            await pilot.click("#confirm-delete")
+            await pilot.click("#yes")
+            await pilot.pause()
+            assert not session.directory.exists()
+            assert any(
+                "no hay sesiones guardadas" in str(widget.render()).lower()
+                for widget in app.screen.query(Static)
+            )
 
     asyncio.run(scenario())
 

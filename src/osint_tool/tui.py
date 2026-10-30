@@ -122,7 +122,7 @@ class MenuScreen(Screen[None]):
             )
         ):
             options.append(Option("Continuar sesión actual", id="session"))
-        options.append(Option("Administrar sesiones locales", id="manage-sessions"))
+        options.append(Option("Historial local", id="manage-sessions"))
         options.append(Option("Salir", id="exit"))
         yield OptionList(*options)
         yield Static(LEGAL_NOTICE)
@@ -917,6 +917,11 @@ class SavedSessionsScreen(FlowScreen):
     def compose(self) -> ComposeResult:
         yield Header()
         yield Label("Sesiones guardadas localmente")
+        yield Static(
+            "Consulta las sesiones guardadas y elimina las que ya no necesites. "
+            "Las sesiones no se pueden reanudar.",
+            id="history-description",
+        )
         if self._error:
             yield Static(f"No se pudieron leer las sesiones ({self._error}).")
         elif self._sessions:
@@ -924,7 +929,8 @@ class SavedSessionsScreen(FlowScreen):
                 *(
                     Selection(
                         f"{session.session_id} · {session.created_at} · "
-                        f"{session.node_count} nodo(s) · {session.status}"
+                        f"{session.node_count} nodo(s) · "
+                        f"{self._display_status(session)}"
                         + ("" if session.safe_to_delete else " · no eliminable"),
                         session.session_id,
                         False,
@@ -944,6 +950,17 @@ class SavedSessionsScreen(FlowScreen):
             )
             yield Button("Volver", id="back")
         yield Footer()
+
+    def _display_status(self, session: SavedSession) -> str:
+        current = self.osint_app.current_session
+        if (
+            session.status == EntryStatus.INTERRUPTED.value
+            and current is not None
+            and current.session_id == session.session_id
+            and any(entry.status is EntryStatus.RUNNING for entry in current.entries)
+        ):
+            return EntryStatus.RUNNING.value
+        return session.status
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "back":

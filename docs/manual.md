@@ -36,4 +36,8 @@ localmente con `OSINT_SESSION_MAX_DEPTH` (0–2) y `OSINT_SESSION_MAX_TARGETS` (
 superiores a esos máximos se rechazan. Los objetivos repetidos se detectan tras normalizar tipo,
 mayúsculas/minúsculas, espacios y formato telefónico. Una entrada fallida queda marcada en el grafo
 y no borra los resultados anteriores. Cada arista se etiqueta como hipótesis no verificada, no como
-una identidad confirmada.
+una identidad confirmada. La opción «Historial local» permite consultar las sesiones guardadas y
+eliminarlas, pero no reanudarlas. Al listar, una sesión guardada con entradas marcadas `running` se
+muestra como `interrupted` sin modificar su `session.json`; las sesiones con una versión de esquema
+no compatible se identifican y también pueden eliminarse.
+Desde la pantalla de sesión o el historial local se pueden eliminar una sesión y sus informes.

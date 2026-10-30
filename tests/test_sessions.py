@@ -218,15 +218,74 @@ def test_delete_removes_only_the_session_directory(tmp_path) -> None:
 def test_saved_session_can_be_found_and_deleted_without_in_memory_state(tmp_path) -> None:
     session = _session(tmp_path)
     session_id = session.session_id
+    session_file = session.directory / "session.json"
+    saved_content = session_file.read_bytes()
 
     saved = list_saved_sessions(tmp_path)
     assert len(saved) == 1
     assert saved[0].session_id == session_id
-    assert saved[0].status == "running"
+    assert saved[0].status == "interrupted"
     assert saved[0].safe_to_delete
+    assert session_file.read_bytes() == saved_content
+    assert json.loads(saved_content)["nodes"][0]["status"] == "running"
 
     delete_saved_session(tmp_path, session_id)
     assert not session.directory.exists()
+
+
+def test_entry_status_includes_interrupted() -> None:
+    assert EntryStatus.INTERRUPTED.value == "interrupted"
+
+
+def test_saved_session_with_mixed_node_statuses_is_interrupted(tmp_path) -> None:
+    session = _session(tmp_path)
+    session.complete_entry("entry-1", _finding_report("alice"))
+    choice = next(choice for choice in session.pivot_choices() if choice.target_type == "username")
+    session.add_pivot(choice)
+
+    saved = list_saved_sessions(tmp_path)
+    stored = json.loads((session.directory / "session.json").read_text(encoding="utf-8"))
+
+    assert [node["status"] for node in stored["nodes"]] == ["completed", "running"]
+    assert saved[0].status == "interrupted"
+
+
+@pytest.mark.parametrize(
+    ("schema_version", "include_version"),
+    [(None, False), ("future", True)],
+    ids=["missing", "nonnumeric"],
+)
+def test_saved_session_with_missing_or_nonnumeric_schema_version_is_incompatible(
+    tmp_path, schema_version, include_version: bool
+) -> None:
+    session = _session(tmp_path)
+    session_file = session.directory / "session.json"
+    data = json.loads(session_file.read_text(encoding="utf-8"))
+    if include_version:
+        data["schema_version"] = schema_version
+    else:
+        data.pop("schema_version")
+    session_file.write_text(json.dumps(data), encoding="utf-8")
+
+    saved = list_saved_sessions(tmp_path)
+
+    assert len(saved) == 1
+    assert saved[0].status == "versión no compatible"
+    assert saved[0].safe_to_delete
+
+
+def test_saved_session_with_unknown_numeric_schema_version_is_incompatible(tmp_path) -> None:
+    session = _session(tmp_path)
+    session_file = session.directory / "session.json"
+    data = json.loads(session_file.read_text(encoding="utf-8"))
+    data["schema_version"] = 999
+    session_file.write_text(json.dumps(data), encoding="utf-8")
+
+    saved = list_saved_sessions(tmp_path)
+
+    assert len(saved) == 1
+    assert saved[0].status == "versión no compatible"
+    assert saved[0].safe_to_delete
 
 
 def test_session_uses_the_same_default_permissions_as_report_files(tmp_path) -> None:
