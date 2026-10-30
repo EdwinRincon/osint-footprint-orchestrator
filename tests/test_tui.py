@@ -640,3 +640,40 @@ def test_error_de_entrada_marca_nodo_fallido_y_conserva_sesion(
             run_investigation.assert_called_once()
 
     asyncio.run(scenario())
+
+
+def test_fallo_del_reporter_persiste_entrada_fallida_en_vez_de_running(
+    tmp_path, monkeypatch
+) -> None:
+    session = InvestigationSession.create(tmp_path, build_target(username="root"))
+    report = Report(target=session.entries[0].target)
+    run_investigation = Mock(return_value=report)
+    write_reports = Mock(side_effect=OSError("disk full"))
+    monkeypatch.setattr(tui, "run_investigation", run_investigation)
+    monkeypatch.setattr(tui, "write_reports", write_reports)
+
+    async def scenario() -> None:
+        app = OsintApp()
+        app.current_session = session
+        async with app.run_test(size=(120, 45)) as pilot:
+            app.switch_screen(
+                tui.RunScreen(
+                    session.entries[0].target,
+                    [],
+                    session,
+                    "entry-1",
+                    "json",
+                )
+            )
+            for _ in range(5):
+                await pilot.pause()
+                if isinstance(app.screen, tui.SessionResultScreen):
+                    break
+            assert isinstance(app.screen, tui.SessionResultScreen)
+            assert session.entries[0].status.value == "failed"
+            stored = json.loads((session.directory / "session.json").read_text(encoding="utf-8"))
+            assert stored["nodes"][0]["status"] == "failed"
+            run_investigation.assert_called_once()
+            write_reports.assert_called_once()
+
+    asyncio.run(scenario())
