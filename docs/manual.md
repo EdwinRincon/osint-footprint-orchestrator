@@ -19,10 +19,10 @@ inconcluso y los demás errores HTTP, de red o de formato de respuesta se regist
 Las investigaciones interactivas de Textual se guardan como sesiones locales bajo
 `OSINT_OUTPUT_DIR/sessions/`. Cada sesión mantiene los informes de sus entradas y un grafo en
 `session.json`. Los informes de sesión omiten los payloads `raw`, redactan claves detectables y
-no guardan URLs de petición; las URLs de fuente se conservan sin query ni fragmento. Los ficheros
-usan los permisos normales de los informes. La interfaz web no expone estas carpetas; la gestión
-de sesiones está disponible en Textual. Desde la pantalla de sesión o el menú de sesiones locales
-se pueden eliminar una sesión y sus informes.
+no guardan URLs de petición; las URLs de fuente se conservan sin query ni fragmento. La interfaz
+web no expone estas carpetas; la gestión de sesiones está disponible en Textual.
+Los ficheros de sesión e informes se guardan con permisos privados (`0700` en carpetas y `0600` en
+ficheros).
 
 Solo se ofrecen valores exactos de hallazgos que pasan al menos un validador actual para los tipos
 de objetivo admitidos. Si un valor pasa para más de un tipo, cada tipo aparece como una opción

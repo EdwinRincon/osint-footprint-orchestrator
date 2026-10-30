@@ -15,7 +15,14 @@ from urllib.parse import urlsplit, urlunsplit
 
 from osint_tool.config import MAX_SESSION_DEPTH, MAX_SESSION_TARGETS
 from osint_tool.models import Finding, ModuleResult, Relation, Report, SourceCheck, Target
-from osint_tool.reporters.base import LEGAL_NOTICE
+from osint_tool.reporters.base import (
+    LEGAL_NOTICE,
+    PRIVATE_DIRECTORY_MODE,
+    PRIVATE_FILE_MODE,
+    ensure_private_directory,
+    set_private_permissions,
+    write_private_text,
+)
 from osint_tool.validation import ValidationError, build_target
 
 SESSION_SCHEMA_VERSION = 1
@@ -416,8 +423,11 @@ class InvestigationSession:
         sessions_root = output_dir / "sessions"
         if sessions_root.is_symlink():
             raise SessionError("La carpeta local de sesiones no es segura.")
+        ensure_private_directory(sessions_root)
+        set_private_permissions(sessions_root, PRIVATE_DIRECTORY_MODE)
         directory = sessions_root / session_id
-        directory.mkdir(parents=True, exist_ok=False)
+        directory.mkdir(mode=PRIVATE_DIRECTORY_MODE, exist_ok=False)
+        set_private_permissions(directory, PRIVATE_DIRECTORY_MODE)
         session = cls(
             session_id=session_id,
             output_dir=output_dir,
@@ -630,14 +640,15 @@ class InvestigationSession:
             or resolved_directory.name != self.session_id
         ):
             raise SessionError("La carpeta de sesión no es local a su raíz.")
-        self.directory.mkdir(parents=True, exist_ok=True)
+        ensure_private_directory(self.directory)
+        set_private_permissions(self.directory, PRIVATE_DIRECTORY_MODE)
         path = self.directory / "session.json"
         temporary = self.directory / f".session-{uuid.uuid4().hex}.tmp"
         content = json.dumps(self.to_dict(), indent=2, ensure_ascii=False) + "\n"
         try:
-            with temporary.open("x", encoding="utf-8") as handle:
-                handle.write(content)
+            write_private_text(temporary, content, exclusive=True)
             temporary.replace(path)
+            set_private_permissions(path, PRIVATE_FILE_MODE)
         except OSError:
             temporary.unlink(missing_ok=True)
             raise

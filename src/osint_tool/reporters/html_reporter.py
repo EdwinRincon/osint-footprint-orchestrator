@@ -7,7 +7,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from osint_tool.models import Report
-from osint_tool.reporters.base import LEGAL_NOTICE
+from osint_tool.reporters.base import LEGAL_NOTICE, write_private_text
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
@@ -34,5 +34,5 @@ class HtmlReporter:
             created=report.created_at.isoformat(timespec="seconds"),
         )
         path = directory / "report.html"
-        path.write_text(html, encoding="utf-8")
+        write_private_text(path, html)
         return [path]

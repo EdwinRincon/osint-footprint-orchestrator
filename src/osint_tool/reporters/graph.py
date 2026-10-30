@@ -12,6 +12,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from osint_tool.correlator import node_id
 from osint_tool.models import Relation, Report
+from osint_tool.reporters.base import PRIVATE_FILE_MODE, set_private_permissions, write_private_text
 
 AGGREGATE_THRESHOLD = 25
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -37,15 +38,13 @@ class GraphReporter:
 
         graph_path = directory / "graph.html"
         environment = Environment(
-            loader=FileSystemLoader(TEMPLATES_DIR),
-            autoescape=True,
-            undefined=StrictUndefined,
+            loader=FileSystemLoader(TEMPLATES_DIR), autoescape=True, undefined=StrictUndefined
         )
-        graph_path.write_text(
+        write_private_text(
+            graph_path,
             environment.get_template("graph.html").render(
                 graph_data=_cytoscape_graph_data(report)
             ),
-            encoding="utf-8",
         )
         paths = [
             graph_path,
@@ -56,6 +55,8 @@ class GraphReporter:
         shutil.copyfile(WEB_STATIC_DIR / "graph.js", paths[1])
         shutil.copyfile(WEB_STATIC_DIR / "vendor" / "cytoscape.min.js", paths[2])
         shutil.copyfile(WEB_STATIC_DIR / "vendor" / "CYTOSCAPE-LICENSE.txt", paths[3])
+        for path in paths[1:]:
+            set_private_permissions(path, PRIVATE_FILE_MODE)
         return paths
 
 

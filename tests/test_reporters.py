@@ -1,4 +1,5 @@
 import json
+import stat
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
@@ -13,6 +14,7 @@ from osint_tool.models import (
     Status,
     Target,
 )
+from osint_tool.reporters import write_reports
 from osint_tool.reporters.base import LEGAL_NOTICE, create_report_dir
 from osint_tool.reporters.html_reporter import HtmlReporter
 from osint_tool.reporters.json_reporter import JsonReporter
@@ -105,6 +107,23 @@ def test_dos_carpetas_del_mismo_informe_son_distintas(tmp_path: Path) -> None:
 def test_la_carpeta_se_crea_aunque_falte_el_directorio_de_salida(tmp_path: Path) -> None:
     directory = create_report_dir(tmp_path / "no" / "existe", _report())
     assert directory.is_dir()
+
+
+def test_write_reports_uses_private_permissions_for_directory_and_all_files(
+    tmp_path: Path,
+) -> None:
+    directory, paths = write_reports(_report(), tmp_path, "all")
+
+    assert stat.S_IMODE(directory.stat().st_mode) == 0o700
+    assert {path.name for path in paths} == {
+        "graph.html",
+        "graph.js",
+        "cytoscape.min.js",
+        "CYTOSCAPE-LICENSE.txt",
+        "report.html",
+        "report.json",
+    }
+    assert all(stat.S_IMODE(path.stat().st_mode) == 0o600 for path in paths)
 
 
 def test_json_escribe_report_json(tmp_path: Path) -> None:

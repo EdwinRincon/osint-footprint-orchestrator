@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from osint_tool.models import Report
-from osint_tool.reporters.base import LEGAL_NOTICE
+from osint_tool.reporters.base import LEGAL_NOTICE, write_private_text
 
 
 class JsonReporter:
@@ -19,7 +19,5 @@ class JsonReporter:
         path = directory / "report.json"
         data = {"notice": LEGAL_NOTICE, **report.to_dict()}
         # ensure_ascii=False conserva tildes y ñ legibles en el fichero.
-        path.write_text(
-            json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-        )
+        write_private_text(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
         return [path]
