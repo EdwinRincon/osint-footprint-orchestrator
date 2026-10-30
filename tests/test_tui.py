@@ -6,6 +6,7 @@ import pytest
 from textual.widgets import Button, Checkbox, DataTable, Input, OptionList, SelectionList, Static
 
 from osint_tool import tui
+from osint_tool.config import Settings
 from osint_tool.models import (
     Finding,
     ModuleResult,
@@ -16,7 +17,7 @@ from osint_tool.models import (
     Status,
     Target,
 )
-from osint_tool.sessions import InvestigationSession
+from osint_tool.sessions import InvestigationSession, SessionEdge
 from osint_tool.tui import (
     MenuScreen,
     ModuleListScreen,
@@ -197,6 +198,62 @@ def test_modulos_de_red_no_se_seleccionan_automaticamente() -> None:
     asyncio.run(scenario())
 
 
+def test_objetivo_inicial_requiere_consentimiento_y_muestra_destinatario(
+    tmp_path, monkeypatch
+) -> None:
+    target = Target(email="ana@ejemplo.com")
+    module = type(
+        "NetworkModule",
+        (),
+        {
+            "name": "example",
+            "accepts": frozenset({"email"}),
+            "requires_network": True,
+            "third_party_recipients": ("Example third party",),
+        },
+    )()
+    monkeypatch.setattr(tui, "applicable_modules", lambda *_args, **_kwargs: [module])
+    monkeypatch.setattr(tui, "load_settings", lambda: Settings(output_dir=tmp_path))
+    run_investigation = Mock(return_value=Report(target=target))
+    monkeypatch.setattr(tui, "run_investigation", run_investigation)
+    monkeypatch.setattr(
+        tui,
+        "write_reports",
+        Mock(side_effect=lambda _report, directory, _format: (directory, [])),
+    )
+
+    async def scenario() -> None:
+        app = OsintApp()
+        async with app.run_test(size=(120, 45)) as pilot:
+            app.switch_screen(ModulesScreen(target))
+            await pilot.pause()
+            app.screen.query_one(SelectionList).select("example")
+            await pilot.click("#start")
+            await pilot.pause()
+
+            assert type(app.screen).__name__ == "InitialConsentScreen"
+            assert app.screen.query_one("#confirm", Checkbox).value is False
+            assert app.screen.query_one("#yes", Button).disabled
+            summary = str(app.screen.query_one("#consent-summary", Static).render())
+            recipients = str(app.screen.query_one("#consent-recipients", Static).render())
+            assert "ana@ejemplo.com" in summary
+            assert "Example third party" in recipients
+            run_investigation.assert_not_called()
+            assert not (tmp_path / "sessions").exists()
+
+            await pilot.click("#confirm")
+            await pilot.click("#yes")
+            for _ in range(5):
+                await pilot.pause()
+                if type(app.screen).__name__ == "SessionResultScreen":
+                    break
+            assert type(app.screen).__name__ == "SessionResultScreen"
+            run_investigation.assert_called_once()
+            assert (tmp_path / "sessions").exists()
+
+    asyncio.run(scenario())
+
+
 def test_modulo_hibp_muestra_aviso_de_divulgacion_y_requisito() -> None:
     async def scenario() -> None:
         app = OsintApp()
@@ -285,6 +342,54 @@ def test_resultados_muestran_fuentes_no_configuradas_en_terminal(tmp_path) -> No
             await pilot.pause()
             modules = app.screen.query_one("#modules", DataTable)
             assert "Have I Been Pwned: not_configured" in str(modules.get_row_at(0))
+
+    asyncio.run(scenario())
+
+
+def test_resultados_de_sesion_sanean_hallazgos_y_aristas_en_terminal(tmp_path) -> None:
+    api_key = "session-secret-739"
+    session = InvestigationSession.create(
+        tmp_path,
+        build_target(username="root"),
+        api_key=api_key,
+    )
+    finding = Finding(
+        entity_type="username",
+        type="profile",
+        value=f"account-{api_key}",
+        source="Example",
+        detail=f"key={api_key}; request https://api.example.test/lookup?token={api_key}",
+        source_url=f"https://api.example.test/lookup?token={api_key}",
+    )
+    session.complete_entry(
+        "entry-1",
+        Report(
+            target=build_target(username="root"),
+            results=[ModuleResult("profiles", Status.OK, [finding])],
+        ),
+    )
+    session.edges.append(
+        SessionEdge(
+            parent_entry_id="entry-1",
+            child_entry_id="entry-2",
+            source_module="profiles",
+            source_url=f"https://api.example.test/source?token={api_key}",
+            evidence_text=f"Bearer {api_key} https://api.example.test/request?token={api_key}",
+            confidence=0.5,
+        )
+    )
+
+    async def scenario() -> None:
+        app = OsintApp()
+        async with app.run_test(size=(120, 45)) as pilot:
+            app.switch_screen(tui.SessionResultScreen(session))
+            await pilot.pause()
+            finding_row = str(app.screen.query_one("#session-findings", DataTable).get_row_at(0))
+            edge_row = str(app.screen.query_one("#session-edges", DataTable).get_row_at(0))
+            assert api_key not in finding_row
+            assert "api.example.test" not in finding_row
+            assert api_key not in edge_row
+            assert "api.example.test" not in edge_row
 
     asyncio.run(scenario())
 

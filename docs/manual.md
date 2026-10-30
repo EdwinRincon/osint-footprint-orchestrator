@@ -27,9 +27,11 @@ ficheros).
 Solo se ofrecen valores exactos de hallazgos que pasan al menos un validador actual para los tipos
 de objetivo admitidos. Si un valor pasa para más de un tipo, cada tipo aparece como una opción
 separada; no se extraen nombres de usuario de URLs ni se derivan dominios o partes de correos.
-Antes de ejecutar cada nuevo objetivo, la interfaz muestra la evidencia, la fuente, los módulos y
-los destinatarios externos. La confirmación empieza desmarcada y no se ejecuta nada sin una
-aceptación explícita. Los módulos de red siguen desactivados por defecto.
+Antes de ejecutar el objetivo inicial, la interfaz muestra el objetivo, los módulos seleccionados y
+sus destinatarios; solo tras la aceptación explícita crea la sesión y ejecuta las consultas. Para
+cada pivote, también muestra la evidencia, la fuente, los módulos y los destinatarios externos.
+Ambas confirmaciones empiezan desmarcadas y no se ejecuta nada sin aceptación explícita. Los
+módulos de red siguen desactivados por defecto.
 
 El límite máximo por sesión es profundidad 2 y 10 objetivos, contando el inicial. Se pueden reducir
 localmente con `OSINT_SESSION_MAX_DEPTH` (0–2) y `OSINT_SESSION_MAX_TARGETS` (1–10); valores

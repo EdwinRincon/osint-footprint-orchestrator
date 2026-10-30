@@ -33,7 +33,7 @@ from textual.widgets.option_list import Option
 from textual.widgets.selection_list import Selection
 from werkzeug.serving import BaseWSGIServer, make_server
 
-from osint_tool.config import ConfigError, load_settings
+from osint_tool.config import ConfigError, Settings, load_settings
 from osint_tool.models import ModuleResult, Report, SourceCheckStatus, Status, Target
 from osint_tool.registry import Module, ModuleSkipped, all_modules, applicable_modules
 from osint_tool.reporters import write_reports
@@ -274,28 +274,106 @@ class ModulesScreen(FlowScreen):
 
         try:
             settings = load_settings()
-            session = InvestigationSession.create(
-                settings.output_dir,
-                self._target,
-                settings.session_max_depth,
-                settings.session_max_targets,
-                settings.hibp_api_key,
-            )
         except ConfigError as exc:
             self.notify(f"Error: {exc}", severity="error")
             return
+        modules = applicable_modules(self._target, names)
+        recipients: dict[str, tuple[str, ...]] = {}
+        for module in modules:
+            if not getattr(module, "requires_network", False):
+                continue
+            module_recipients, error = _resolve_module_recipients(module)
+            if error is not None:
+                self.notify(
+                    f"No se pudieron confirmar los destinatarios de {module.name} "
+                    f"({error}).",
+                    severity="error",
+                )
+                return
+            recipients[module.name] = module_recipients
+        self.app.switch_screen(
+            InitialConsentScreen(
+                self._target,
+                modules,
+                settings,
+                recipients,
+                self.osint_app.output_format,
+            )
+        )
+
+
+class InitialConsentScreen(FlowScreen):
+    """Require explicit consent before creating a session or running selected modules."""
+
+    def __init__(
+        self,
+        target: Target,
+        modules: list[Module],
+        settings: Settings,
+        recipients: dict[str, tuple[str, ...]],
+        output_format: OutputFormat,
+    ) -> None:
+        super().__init__()
+        self._target = target
+        self._modules = modules
+        self._settings = settings
+        self._recipients = recipients
+        self._output_format = output_format
+
+    def compose(self) -> ComposeResult:
+        target = ", ".join(f"{key}={value}" for key, value in self._target.to_dict().items())
+        recipient_lines: list[str] = []
+        for module in self._modules:
+            if getattr(module, "requires_network", False):
+                recipient_lines.extend(
+                    f"{module.name} -> {recipient}" for recipient in self._recipients[module.name]
+                )
+            else:
+                recipient_lines.append(f"{module.name}: local; no se envía a terceros.")
+        yield Header()
+        yield Static(Text(f"Objetivo: {target}"), id="consent-summary")
+        yield Label("Módulos y destinatarios")
+        yield Static(Text("\n".join(recipient_lines)), id="consent-recipients")
+        yield Checkbox(
+            "Confirmo ejecutar estos módulos y enviar los datos pertinentes "
+            "a los destinatarios indicados (sin marcar = no ejecutar).",
+            id="confirm",
+            value=False,
+        )
+        with Horizontal():
+            yield Button("No, volver", id="no")
+            yield Button("Sí, ejecutar", id="yes", variant="error", disabled=True)
+        yield Footer()
+
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        if event.checkbox.id == "confirm":
+            self.query_one("#yes", Button).disabled = not event.value
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "no":
+            self.app.switch_screen(ModulesScreen(self._target))
+            return
+        if event.button.id != "yes" or not self.query_one("#confirm", Checkbox).value:
+            return
+        try:
+            session = InvestigationSession.create(
+                self._settings.output_dir,
+                self._target,
+                self._settings.session_max_depth,
+                self._settings.session_max_targets,
+                self._settings.hibp_api_key,
+            )
         except (OSError, SessionError) as exc:
             self.notify(f"No se pudo crear la sesión ({type(exc).__name__}).", severity="error")
             return
-        modules = applicable_modules(self._target, names)
         self.osint_app.current_session = session
         self.app.switch_screen(
             RunScreen(
                 self._target,
-                modules,
+                self._modules,
                 session,
                 "entry-1",
-                self.osint_app.output_format,
+                self._output_format,
             )
         )
 
@@ -534,7 +612,8 @@ class SessionResultScreen(FlowScreen):
             yield Label(f"Hallazgos de {latest.entry_id}")
             yield DataTable[Text | str](id="session-findings")
         elif latest.status is EntryStatus.FAILED:
-            yield Static(latest.error or "La entrada falló.")
+            error = safe_evidence_text(latest.error, self._session.api_key) or "La entrada falló."
+            yield Static(error)
         else:
             yield Static("Esta entrada no produjo hallazgos.")
         yield Static(f"Informe local: {self._session.directory / 'session.json'}")
@@ -559,10 +638,13 @@ class SessionResultScreen(FlowScreen):
         nodes = self.query_one("#session-nodes", DataTable)
         nodes.add_columns("Entrada", "Profundidad", "Objetivo", "Estado", "Informe")
         for entry in self._session.entries:
+            target = safe_report(
+                Report(target=entry.target), self._session.api_key
+            ).target.to_dict()
             nodes.add_row(
                 entry.entry_id,
                 str(entry.depth),
-                ", ".join(f"{key}={value}" for key, value in entry.target.to_dict().items()),
+                ", ".join(f"{key}={value}" for key, value in target.items()),
                 entry.status.value,
                 entry.report_directory or "",
             )
@@ -582,21 +664,26 @@ class SessionResultScreen(FlowScreen):
                 edges.add_row(
                     edge.parent_entry_id,
                     edge.child_entry_id,
-                    edge.source_module,
-                    edge.source_url or "",
-                    edge.evidence_text,
+                    safe_evidence_text(edge.source_module, self._session.api_key),
+                    safe_source_url(edge.source_url, self._session.api_key) or "",
+                    safe_evidence_text(edge.evidence_text, self._session.api_key),
                     f"{edge.confidence:.2f}",
-                    edge.label,
+                    safe_evidence_text(edge.label, self._session.api_key),
                 )
 
         latest = self._session.entries[-1]
-        if latest.report is not None and latest.report.findings:
+        report = (
+            safe_report(latest.report, self._session.api_key)
+            if latest.report is not None
+            else None
+        )
+        if report is not None and report.findings:
             findings = self.query_one("#session-findings", DataTable)
             findings.add_columns("Módulo", "Tipo", "Valor", "Fuente", "Evidencia", "Confianza")
-            for result in latest.report.results:
+            for result in report.results:
                 for finding in result.findings:
                     findings.add_row(
-                        result.name,
+                        safe_evidence_text(result.name, self._session.api_key),
                         finding.entity_type,
                         finding.value,
                         finding.source,
