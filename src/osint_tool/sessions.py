@@ -15,6 +15,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from osint_tool.config import MAX_SESSION_DEPTH, MAX_SESSION_TARGETS
 from osint_tool.models import Finding, ModuleResult, Relation, Report, SourceCheck, Target
+from osint_tool.pivots import KIND_EMAIL, Pivot
 from osint_tool.reporters.base import (
     LEGAL_NOTICE,
     PRIVATE_DIRECTORY_MODE,
@@ -87,8 +88,24 @@ class PivotChoice:
     parent_entry_id: str
     target_type: str
     target: Target
+    observed_value: str
     finding: Finding
     source_module: str
+
+
+def _finding_pivot_candidates(finding: Finding) -> list[tuple[str, tuple[str, ...]]]:
+    candidates: list[tuple[str, tuple[str, ...]]] = [(finding.value, PIVOT_FIELDS)]
+    raw_pivots = finding.raw.get("pivots")
+    if not isinstance(raw_pivots, list):
+        return candidates
+    candidates.extend(
+        (pivot.value, ("email",))
+        for item in raw_pivots
+        if (pivot := Pivot.from_dict(item)) is not None
+        and pivot.explicit
+        and pivot.kind == KIND_EMAIL
+    )
+    return candidates
 
 
 def _target_for_field(field_name: str, value: str) -> Target:
@@ -490,22 +507,27 @@ class InvestigationSession:
                 continue
             for result in parent.report.results:
                 for finding in result.findings:
-                    for target_type in PIVOT_FIELDS:
-                        try:
-                            target = _target_for_field(target_type, finding.value)
-                        except ValidationError:
-                            continue
-                        if self.contains_target(target):
-                            continue
-                        choices.append(
-                            PivotChoice(
-                                parent_entry_id=parent.entry_id,
-                                target_type=target_type,
-                                target=target,
-                                finding=finding,
-                                source_module=result.name,
+                    seen_targets: set[frozenset[tuple[str, str]]] = set()
+                    for observed_value, target_types in _finding_pivot_candidates(finding):
+                        for target_type in target_types:
+                            try:
+                                target = _target_for_field(target_type, observed_value)
+                            except ValidationError:
+                                continue
+                            identity = target_identifiers(target)
+                            if identity in seen_targets or self.contains_target(target):
+                                continue
+                            seen_targets.add(identity)
+                            choices.append(
+                                PivotChoice(
+                                    parent_entry_id=parent.entry_id,
+                                    target_type=target_type,
+                                    target=target,
+                                    observed_value=observed_value,
+                                    finding=finding,
+                                    source_module=result.name,
+                                )
                             )
-                        )
         return choices
 
     def add_pivot(self, choice: PivotChoice) -> SessionEntry:
@@ -519,7 +541,7 @@ class InvestigationSession:
         if value is None or len(choice.target.provided()) != 1:
             raise SessionError("El pivote debe contener exactamente un tipo validado.")
         try:
-            normalized_target = _target_for_field(choice.target_type, choice.finding.value)
+            normalized_target = _target_for_field(choice.target_type, choice.observed_value)
         except ValidationError as exc:
             raise SessionError("El valor observado no pasa el validador elegido.") from exc
         if normalized_target.to_dict().get(choice.target_type) != value:
@@ -541,7 +563,7 @@ class InvestigationSession:
             source_module=choice.source_module,
             source_url=_clean_source_url(choice.finding.source_url, self.api_key),
             evidence_text=_safe_text(
-                f"{choice.finding.value}"
+                f"{choice.observed_value}"
                 + (f" — {choice.finding.detail}" if choice.finding.detail else ""),
                 self.api_key,
             )

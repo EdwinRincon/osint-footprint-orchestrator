@@ -450,6 +450,39 @@ def test_confirmacion_de_pivot_empieza_en_no_y_rechazar_no_ejecuta(
     asyncio.run(scenario())
 
 
+def test_confirmacion_de_pivot_muestra_el_valor_declarado(tmp_path) -> None:
+    session = InvestigationSession.create(tmp_path, build_target(username="root"))
+    finding = Finding(
+        entity_type="username",
+        type="profile",
+        value="https://github.com/ana",
+        source="GitHub",
+        raw={
+            "pivots": [
+                {"kind": "email", "value": "ana@ejemplo.com", "explicit": True}
+            ]
+        },
+    )
+    session.complete_entry(
+        "entry-1",
+        Report(
+            target=build_target(username="root"),
+            results=[ModuleResult("github_profile", Status.OK, [finding])],
+        ),
+    )
+    choice = next(choice for choice in session.pivot_choices() if choice.target_type == "email")
+
+    async def scenario() -> None:
+        app = OsintApp()
+        async with app.run_test(size=(120, 45)) as pilot:
+            app.switch_screen(PivotConfirmScreen(session, choice, [], {}))
+            await pilot.pause()
+            text = " ".join(str(widget.render()) for widget in app.screen.query(Static))
+            assert "Valor observado: ana@ejemplo.com" in text
+
+    asyncio.run(scenario())
+
+
 def test_pivot_selector_no_ejecuta_modulos_automaticamente(
     tmp_path, monkeypatch
 ) -> None:

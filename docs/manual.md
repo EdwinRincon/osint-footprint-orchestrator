@@ -24,9 +24,11 @@ web no expone estas carpetas; la gestión de sesiones está disponible en Textua
 Los ficheros de sesión e informes se guardan con permisos privados (`0700` en carpetas y `0600` en
 ficheros).
 
-Solo se ofrecen valores exactos de hallazgos que pasan al menos un validador actual para los tipos
-de objetivo admitidos. Si un valor pasa para más de un tipo, cada tipo aparece como una opción
-separada; no se extraen nombres de usuario de URLs ni se derivan dominios o partes de correos.
+Los pivotes pueden venir del valor exacto de un hallazgo validado o de un correo que el módulo
+declare explícitamente. Los valores de hallazgo que pasan para más de un tipo aparecen una vez por
+tipo; los pivotes declarados solo se aceptan como correo explícito. No se ofrecen gravatars ni
+pivotes implícitos, y no se extraen nombres de usuario de URLs ni se derivan dominios o partes de
+correos.
 Antes de ejecutar el objetivo inicial, la interfaz muestra el objetivo, los módulos seleccionados y
 sus destinatarios; solo tras la aceptación explícita crea la sesión y ejecuta las consultas. Para
 cada pivote, también muestra la evidencia, la fuente, los módulos y los destinatarios externos.

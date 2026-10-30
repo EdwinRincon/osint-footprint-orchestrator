@@ -731,7 +731,7 @@ class PivotSelectionScreen(FlowScreen):
                             f"{choice.target_type}="
                             f"{choice.target.to_dict()[choice.target_type]} · "
                             f"{choice.source_module}/{choice.finding.source} · "
-                            f"observado: {choice.finding.value} · "
+                            f"observado: {choice.observed_value} · "
                             f"evidencia: {evidence} · "
                             f"confianza {choice.finding.confidence:.2f}"
                         ),
@@ -879,7 +879,7 @@ class PivotConfirmScreen(FlowScreen):
             f"Destino: {self._choice.target_type}={value}\n"
             f"Origen: {self._choice.parent_entry_id} / {self._choice.source_module} / "
             f"{source}\n"
-            f"Valor observado: {finding.value}\n"
+            f"Valor observado: {self._choice.observed_value}\n"
             f"Evidencia: {evidence or 'sin detalle adicional'}\n"
             f"URL de fuente: {source_url or 'no disponible'}\n"
             f"Confianza: {finding.confidence:.2f} (no es probabilidad calibrada)\n"

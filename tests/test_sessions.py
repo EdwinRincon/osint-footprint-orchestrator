@@ -75,6 +75,42 @@ def test_finding_value_can_be_explicitly_typed_without_semantic_guessing(tmp_pat
     assert {choice.target_type for choice in session.pivot_choices()} == {"username", "name"}
 
 
+def test_explicit_email_pivot_creates_choice_and_implicit_pivots_are_ignored(tmp_path) -> None:
+    session = _session(tmp_path)
+    finding = Finding(
+        entity_type="username",
+        type="profile",
+        value="https://github.com/ana",
+        source="GitHub",
+        detail="Public profile",
+        raw={
+            "pivots": [
+                {"kind": "email", "value": "ana@ejemplo.com", "explicit": True},
+                {"kind": "email", "value": "weak@ejemplo.com", "explicit": False},
+                {"kind": "gravatar", "value": "a" * 32, "explicit": True},
+            ]
+        },
+    )
+    session.complete_entry(
+        "entry-1",
+        Report(
+            target=build_target(username="root"),
+            results=[ModuleResult("github_profile", Status.OK, [finding])],
+        ),
+    )
+
+    choices = session.pivot_choices()
+    email_choice = next(choice for choice in choices if choice.target_type == "email")
+    assert email_choice.target.email == "ana@ejemplo.com"
+    assert email_choice.observed_value == "ana@ejemplo.com"
+    assert all(choice.observed_value != "weak@ejemplo.com" for choice in choices)
+    assert all(choice.observed_value != "a" * 32 for choice in choices)
+
+    child = session.add_pivot(email_choice)
+    assert child.target.email == "ana@ejemplo.com"
+    assert session.edges[0].evidence_text == "ana@ejemplo.com — Public profile"
+
+
 def test_limits_enforce_depth_and_total_target_maximum(tmp_path) -> None:
     session = _session(tmp_path, max_depth=1, max_targets=2)
     session.complete_entry("entry-1", _finding_report("alice"))
