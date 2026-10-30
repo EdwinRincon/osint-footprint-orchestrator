@@ -1,5 +1,6 @@
 import json
 import stat
+from dataclasses import replace
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
@@ -151,6 +152,23 @@ def test_json_contiene_todo_el_informe(tmp_path: Path) -> None:
     assert check["retrieved_at"].endswith("+00:00")
     assert data["relations"][0]["label"] == "subdominio"
     assert "Pérez" in raw  # las tildes no se escapan como \u00e9
+
+
+def test_json_omite_raw_de_hallazgos_por_defecto(tmp_path: Path) -> None:
+    report = _report()
+    report.results[0].findings[0] = replace(
+        report.results[0].findings[0],
+        raw={"response": {"email": "ana@ejemplo.com"}, "api_key": "do-not-export-this"},
+    )
+
+    JsonReporter().write(report, tmp_path)
+
+    content = (tmp_path / "report.json").read_text(encoding="utf-8")
+    finding = json.loads(content)["results"][0]["findings"][0]
+    assert "raw" not in finding
+    assert "do-not-export-this" not in content
+    assert finding["value"] == "a.ejemplo.com"
+    assert report.results[0].findings[0].raw["api_key"] == "do-not-export-this"
 
 
 def test_json_incluye_los_avisos(tmp_path: Path) -> None:
